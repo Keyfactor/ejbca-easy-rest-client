@@ -12,9 +12,14 @@
  *************************************************************************/
 package com.keyfactor.ejbca.util;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -739,5 +744,93 @@ public class CertTools {
 		printStream.println(new String(Base64.encode(unencodedData)));
 		printStream.println(endKey);
 	}
+	
+    /**
+     * Reads certificates in PEM-format from a filename.
+     * The stream may contain other things between the different certificates.
+     * 
+     * @param certificateFilename filename of the file containing the certificates in PEM-format
+     * @param returnType a Class specifying the desired return type. Certificate can be used if return type is unknown.
+     * 
+     * @return Ordered List of Certificates, first certificate first, or empty List
+     * @throws FileNotFoundException if certFile was not found
+     * @throws CertificateParsingException if the file contains an incorrect certificate.
+     */
+    public static List<X509Certificate> getCertsFromPEM(final String certificateFilename) throws FileNotFoundException, CertificateParsingException {
+  
+        final List<X509Certificate> certs;
+        try (final InputStream inStrm = new FileInputStream(certificateFilename)) {
+            certs = getCertsFromPEM(inStrm);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to close input stream");
+        }
+        return certs;
+    }
+    
+    /**
+     * Reads certificates in PEM-format from an InputStream. 
+     * The stream may contain other things between the different certificates.
+     * 
+     * @param certstream the input stream containing the certificates in PEM-format
+     * @param returnType specifies the desired certificate type. Certificate can be used if certificate type is unknown.
+     * @return Ordered List of Certificates, first certificate first, or empty List
+     * @exception CertificateParsingException if the stream contains an incorrect certificate.
+     */
+    public static List<X509Certificate> getCertsFromPEM(final InputStream certstream) throws CertificateParsingException {
+        final List<X509Certificate> ret = new ArrayList<>();
+        final String beginKeyTrust = "-----BEGIN TRUSTED CERTIFICATE-----";
+        final String endKeyTrust = "-----END TRUSTED CERTIFICATE-----";
+        try (final BufferedReader bufRdr = new BufferedReader(new InputStreamReader(new SecurityFilterInputStream(certstream)))) {
+            while (bufRdr.ready()) {
+                final ByteArrayOutputStream ostr = new ByteArrayOutputStream();
+                final PrintStream opstr = new PrintStream(ostr);
+                String temp;
+                while ((temp = bufRdr.readLine()) != null && !(temp.equals(BEGIN_CERTIFICATE) || temp.equals(beginKeyTrust))) {
+                    continue;
+                }
+                if (temp == null) {
+                    if (ret.isEmpty()) {
+                        // There was no certificate in the file
+                        throw new CertificateParsingException("Error in " + certstream.toString() + ", missing " + BEGIN_CERTIFICATE
+                                + " boundary");
+                    } else {
+                        // There were certificates, but some blank lines or something in the end
+                        // anyhow, the file has ended so we can break here.
+                        break;
+                    }
+                }
+                while ((temp = bufRdr.readLine()) != null && !(temp.equals(END_CERTIFICATE) || temp.equals(endKeyTrust))) {
+                    opstr.print(temp);
+                }
+                if (temp == null) {
+                    throw new IllegalArgumentException("Error in " + certstream.toString() + ", missing " + END_CERTIFICATE
+                            + " boundary");
+                }
+                opstr.close();
+
+                byte[] certbuf = Base64.decode(ostr.toByteArray());
+                ostr.close();
+                // Phweeew, were done, now decode the cert from file back to Certificate object
+                X509Certificate cert = getCertfromByteArray(certbuf);
+                ret.add(cert);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Exception caught when attempting to read stream, see underlying IOException", e);
+        }
+        return ret;
+    }
+    
+    /**
+     * Gets Serial number of the certificate as a string. For X509 Certificate this means a HEX encoded BigInteger.
+     * 
+     * For X509 certificates, the value is normalized (uppercase without leading zeros), so there's no need to normalize the returned value.
+     * 
+     */
+    public static String getSerialNumberAsString(final X509Certificate certficate) {
+        if (certficate == null) {
+            throw new IllegalArgumentException("Certificate was null.");
+        }
+        return certficate.getSerialNumber().toString(16).toUpperCase();
+    }
 	
 }

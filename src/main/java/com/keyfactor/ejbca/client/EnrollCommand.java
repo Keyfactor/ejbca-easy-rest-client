@@ -13,7 +13,6 @@
 package com.keyfactor.ejbca.client;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
@@ -21,27 +20,18 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
-import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
 import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
-
-import javax.net.ssl.SSLContext;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ssl.TrustAllStrategy;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.ssl.SSLContexts;
 import org.apache.log4j.Logger;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -68,14 +58,13 @@ import com.keyfactor.ejbca.util.CertTools;
 import com.keyfactor.ejbca.util.KeyTools;
 
 /**
+ * A CLI command which invokes the "pkcs10enroll" REST command
  *
  */
 public class EnrollCommand extends ErceCommandBase {
 
 	private static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
 
-	private static final String AUTHENTICATION_KEYSTORE_FILE_ARGS = "--authkeystore";
-	private static final String AUTHENTICATION_KEYSTORE_PASS_ARGS = "--authkeystorepass";
 	private static final String PUBKEY_ARGS = "--pubkey";
 	private static final String PRIVKEY_ARGS = "--privkey";
 	private static final String SDN_ARG = "--subjectdn";
@@ -85,15 +74,10 @@ public class EnrollCommand extends ErceCommandBase {
 	private static final String CA_ARG = "--ca";
 	private static final String USERNAME_ARGS = "--username";
 	private static final String USERPASS_ARGS = "--password";
-	private static final String HOSTNAME_ARG = "--hostname";
 	private static final String DESTINATION_ARG = "--destination";
 
 	{
-		registerParameter(new Parameter(AUTHENTICATION_KEYSTORE_FILE_ARGS, "Authentication Keystore",
-				MandatoryMode.MANDATORY, StandaloneMode.FORBID, ParameterMode.ARGUMENT,
-				"Complete path to a keystore used to authenticate"));
-		registerParameter(new Parameter(AUTHENTICATION_KEYSTORE_PASS_ARGS, "Keystore Password", MandatoryMode.MANDATORY,
-				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Authentication Keystore Password"));
+
 		registerParameter(new Parameter(PUBKEY_ARGS, "Public Key File", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Complete path to the public key to sign"));
 		registerParameter(
@@ -113,8 +97,6 @@ public class EnrollCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT, "Username for the end entity"));
 		registerParameter(new Parameter(USERPASS_ARGS, "Enrollment Password", MandatoryMode.MANDATORY,
 				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Enrollment Password for the enrolled end entity."));
-		registerParameter(new Parameter(HOSTNAME_ARG, "hostname:port", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Hostname and port, i.e localhost:8443"));
 		registerParameter(new Parameter(DESTINATION_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Destination directory. Optional, pwd will be used if left out."));
 	}
@@ -130,8 +112,6 @@ public class EnrollCommand extends ErceCommandBase {
 	@SuppressWarnings("unchecked")
 	@Override
 	protected CommandResult execute(ParameterContainer parameters) {
-		final String keystoreFileName = parameters.get(AUTHENTICATION_KEYSTORE_FILE_ARGS);
-		final String keystorePassword = parameters.get(AUTHENTICATION_KEYSTORE_PASS_ARGS);
 		final String pubkeyFilename = parameters.get(PUBKEY_ARGS);
 		final String privkeyFilename = parameters.get(PRIVKEY_ARGS);
 		final String subjectAltName = parameters.get(SAN_ARG);
@@ -141,27 +121,17 @@ public class EnrollCommand extends ErceCommandBase {
 		final String subjectDn = parameters.get(SDN_ARG);
 		final String username = parameters.get(USERNAME_ARGS);
 		final String password = parameters.get(USERPASS_ARGS);
-		final String hostname = parameters.get(HOSTNAME_ARG);
-		
+
 		File destination;
-		if(parameters.containsKey(DESTINATION_ARG)) {
+		if (parameters.containsKey(DESTINATION_ARG)) {
 			final String destinationDirName = parameters.get(DESTINATION_ARG);
 			destination = new File(destinationDirName);
-			if(!destination.isDirectory() || !destination.canWrite()) {
+			if (!destination.isDirectory() || !destination.canWrite()) {
 				log.error("Directory " + destinationDirName + " was not a directory, or could not be written to.");
 				return CommandResult.CLI_FAILURE;
 			}
 		} else {
 			destination = new File(System.getProperty("user.dir"));
-		}
-		
-		final KeyStore authenticationKeystore;
-		try (InputStream keyStoreStream = new FileInputStream(keystoreFileName)) {
-			authenticationKeystore = KeyStore.getInstance("PKCS12");
-			authenticationKeystore.load(keyStoreStream, keystorePassword.toCharArray());
-		} catch (IOException | KeyStoreException | NoSuchAlgorithmException | CertificateException e) {
-			log.error("Client certificate keystore can not be loaded : " + keystoreFileName + ". " + e.getMessage());
-			return CommandResult.CLI_FAILURE;
 		}
 
 		try {
@@ -190,16 +160,11 @@ public class EnrollCommand extends ErceCommandBase {
 			param.writeJSONString(out);
 			final String payload = out.toString();
 
-			final SSLContext sslContext = SSLContexts.custom()
-					.loadKeyMaterial(authenticationKeystore, keystorePassword.toCharArray())
-					.loadTrustMaterial(authenticationKeystore, new TrustAllStrategy()).build();
-
-			final String restUrl = new StringBuilder().append("https://").append(hostname).append(getCommandUrl())
+			final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(getCommandUrl())
 					.toString();
-
+			final HttpPost request = new HttpPost(restUrl);
 			// connect to EJBCA and send the CSR and get an issued certificate back
-
-			try (CloseableHttpResponse response = performRESTAPIRequest(sslContext, restUrl, payload)) {
+			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request, payload)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 
@@ -217,16 +182,16 @@ public class EnrollCommand extends ErceCommandBase {
 					X509Certificate certificate = CertTools.getCertfromByteArray(certBytes);
 					byte[] pembytes = CertTools.getPemFromCertificate(certificate);
 					File certificateFile = new File(destination, username + ".pem");
-					 // Write the resulting cert to file
-			        try {
-			            FileOutputStream fos = new FileOutputStream(certificateFile);
-			            fos.write(pembytes);
-			            fos.close();
-			        } catch (IOException e) {
-			            log.error("Could not write to certificate file " + certificateFile + ". " + e.getMessage());
-			            return CommandResult.FUNCTIONAL_FAILURE;
-			        }
-			        log.info("PEM certificate written to file '" + certificateFile + "'");
+					// Write the resulting cert to file
+					try {
+						FileOutputStream fos = new FileOutputStream(certificateFile);
+						fos.write(pembytes);
+						fos.close();
+					} catch (IOException e) {
+						log.error("Could not write to certificate file " + certificateFile + ". " + e.getMessage());
+						return CommandResult.FUNCTIONAL_FAILURE;
+					}
+					log.info("PEM certificate written to file '" + certificateFile + "'");
 					break;
 				default:
 					log.error("Return code was: " + response.getStatusLine().getStatusCode() + ": " + responseString);
@@ -234,35 +199,18 @@ public class EnrollCommand extends ErceCommandBase {
 				}
 				return CommandResult.SUCCESS;
 
-			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
-					| KeyStoreException | ParseException | CertificateParsingException e) {
+			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException
+					| ParseException | CertificateParsingException e) {
 				log.error("Could not perform request: " + e.getMessage());
 				return CommandResult.FUNCTIONAL_FAILURE;
 			}
 		} catch (IOException e) {
 			throw new IllegalStateException("Unknown IOException was caught.", e);
-		} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException e) {
-			log.error("Could not perform request: " + e.getMessage());
-			return CommandResult.FUNCTIONAL_FAILURE;
 		}
 	}
 
 	protected String getCommandUrl() {
 		return COMMAND_URL;
-	}
-
-	private CloseableHttpResponse performRESTAPIRequest(final SSLContext sslContext, String restUrl,
-			final String payload) throws IOException, KeyManagementException, UnrecoverableKeyException,
-			NoSuchAlgorithmException, KeyStoreException {
-		final HttpPost request = new HttpPost(restUrl);
-		request.setHeader("Content-Type", "application/json");
-		request.setEntity(new StringEntity(payload));
-		final HttpClientBuilder builder = HttpClientBuilder.create();
-		// sslContext should be pre-created because it takes something like 25ms to
-		// create, and it's the same for every call (and thread for that matter)
-		final CloseableHttpClient httpClient = builder.setSSLContext(sslContext).build();
-		final CloseableHttpResponse response = httpClient.execute(request);
-		return response;
 	}
 
 	private PublicKey readPublicKey(final String filename) throws IOException {
