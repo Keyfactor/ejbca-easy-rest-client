@@ -116,8 +116,8 @@ public class EnrollCommand extends ErceCommandBase {
 		final String pubkeyFilename = parameters.get(PUBKEY_ARGS);
 		final String privkeyFilename = parameters.get(PRIVKEY_ARGS);
 		final String subjectAltName = parameters.get(SAN_ARG);
-		final String endEntityProfileName = parameters.get(CERTIFICATE_PROFILE_ARGS);
-		final String certificateProfileName = parameters.get(END_ENTITY_PROFILE_ARGS);
+		final String endEntityProfileName = parameters.get(END_ENTITY_PROFILE_ARGS);
+		final String certificateProfileName = parameters.get(CERTIFICATE_PROFILE_ARGS);
 		final String caName = parameters.get(CA_ARG);
 		final String subjectDn = parameters.get(SDN_ARG);
 		final String username = parameters.get(USERNAME_ARGS);
