@@ -31,6 +31,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.StringEntity;
 import org.apache.log4j.Logger;
 import org.ejbca.ui.cli.infrastructure.command.CommandResult;
 import org.ejbca.ui.cli.infrastructure.parameter.Parameter;
@@ -43,7 +44,7 @@ import org.json.simple.JSONObject;
 import com.keyfactor.ejbca.util.CertTools;
 
 /**
- * A CLI command for revoking a certificat through the EJBCA REST API.
+ * A CLI command for revoking a certificate through the EJBCA REST API.
  *
  */
 public class RevokeCommand extends ErceCommandBase {
@@ -138,13 +139,12 @@ public class RevokeCommand extends ErceCommandBase {
 		try {
 			// Construct the parameter payload
 			JSONObject param = new JSONObject();
-			//param.put("reason", revocationReason);
-			//param.put("date", revocationDate);
 			final StringWriter out = new StringWriter();
 			param.writeJSONString(out);
 			payload = out.toString();
 			final HttpPut request = new HttpPut(restUrl);
-			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request, payload)) {
+			request.setEntity(new StringEntity(payload));
+			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 				switch (response.getStatusLine().getStatusCode()) {

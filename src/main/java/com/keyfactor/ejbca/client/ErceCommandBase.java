@@ -25,8 +25,7 @@ import java.security.cert.CertificateException;
 import javax.net.ssl.SSLContext;
 
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
-import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.conn.ssl.TrustAllStrategy;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -101,7 +100,7 @@ public abstract class ErceCommandBase extends CommandBase {
 		if (keystoreFileName != null) {
 			defensiveCopy.remove(AUTHENTICATION_KEYSTORE_FILE_ARGS);
 		}
-		
+
 		keystorePassword = parameters.get(AUTHENTICATION_KEYSTORE_PASS_ARGS);
 		if (keystorePassword != null) {
 			defensiveCopy.remove(AUTHENTICATION_KEYSTORE_PASS_ARGS);
@@ -115,7 +114,6 @@ public abstract class ErceCommandBase extends CommandBase {
 					"Client certificate keystore can not be loaded : " + keystoreFileName + ". " + e.getMessage());
 			return null;
 		}
-		
 
 		hostname = parameters.get(HOSTNAME_ARG);
 		if (hostname != null) {
@@ -135,12 +133,12 @@ public abstract class ErceCommandBase extends CommandBase {
 		return hostname;
 	}
 
-	protected CloseableHttpResponse performRESTAPIRequest(final SSLContext sslContext,
-			HttpEntityEnclosingRequestBase request, final String payload) throws IOException, KeyManagementException,
-			UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException {
+	protected CloseableHttpResponse performRESTAPIRequest(final SSLContext sslContext, HttpRequestBase request)
+			throws IOException, KeyManagementException, UnrecoverableKeyException, NoSuchAlgorithmException,
+			KeyStoreException {
 
 		request.setHeader("Content-Type", "application/json");
-		request.setEntity(new StringEntity(payload));
+
 		final HttpClientBuilder builder = HttpClientBuilder.create();
 		// sslContext should be pre-created because it takes something like 25ms to
 		// create, and it's the same for every call (and thread for that matter)

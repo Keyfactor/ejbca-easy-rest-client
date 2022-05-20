@@ -32,6 +32,7 @@ import java.security.cert.X509Certificate;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
 import org.apache.log4j.Logger;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -163,8 +164,9 @@ public class EnrollCommand extends ErceCommandBase {
 			final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(getCommandUrl())
 					.toString();
 			final HttpPost request = new HttpPost(restUrl);
+			request.setEntity(new StringEntity(payload));
 			// connect to EJBCA and send the CSR and get an issued certificate back
-			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request, payload)) {
+			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 

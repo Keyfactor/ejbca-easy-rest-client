@@ -2,7 +2,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.keyfactor</groupId>
 	<artifactId>erce</artifactId>
-	<version>0.0.2-SNAPSHOT</version>
+	<version>0.0.3-SNAPSHOT</version>
 	<name>Easy REST Client for EJBCA</name>
 	<description>Easy REST Client for EJBCA</description>
 
@@ -74,6 +74,11 @@
 			<artifactId>resteasy-client</artifactId>
 			<version>4.7.1.Final</version>
 		</dependency>
+		<dependency>
+			<groupId>jakarta.ws.rs</groupId>
+			<artifactId>all</artifactId>
+			<version>2.1.1</version>
+		</dependency>
 		<!-- Keyfactor Common's CLI Lib'-->
 		<dependency>
 			<groupId>com.keyfactor</groupId>
@@ -86,11 +91,7 @@
 			<artifactId>servicemanifestbuilder</artifactId>
 			<version>1.0.2</version>
 		</dependency>
-		<dependency>
-			<groupId>jakarta.ws.rs</groupId>
-			<artifactId>all</artifactId>
-			<version>2.1.1</version>
-		</dependency>
+		
 	</dependencies>
 
 
