@@ -2,7 +2,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.keyfactor</groupId>
 	<artifactId>erce</artifactId>
-	<version>0.0.4-SNAPSHOT</version>
+	<version>0.0.5-SNAPSHOT</version>
 	<name>Easy REST Client for EJBCA</name>
 	<description>Easy REST Client for EJBCA</description>
 
@@ -72,12 +72,14 @@
 		<dependency>
 			<groupId>org.jboss.resteasy</groupId>
 			<artifactId>resteasy-client</artifactId>
-			<version>4.7.1.Final</version>
+			<version>6.0.1.Final</version>
 		</dependency>
+
+		<!-- https://mvnrepository.com/artifact/jakarta.ws.rs/jakarta.ws.rs-api -->
 		<dependency>
 			<groupId>jakarta.ws.rs</groupId>
-			<artifactId>all</artifactId>
-			<version>2.1.1</version>
+			<artifactId>jakarta.ws.rs-api</artifactId>
+			<version>3.1.0</version>
 		</dependency>
 		<!-- Keyfactor Common's CLI Lib'-->
 		<dependency>
@@ -91,7 +93,7 @@
 			<artifactId>servicemanifestbuilder</artifactId>
 			<version>1.0.2</version>
 		</dependency>
-		
+
 	</dependencies>
 
 
@@ -132,7 +134,7 @@
 					</arguments>
 				</configuration>
 			</plugin>
-	
+
 			<plugin>
 				<artifactId>maven-assembly-plugin</artifactId>
 				<configuration>

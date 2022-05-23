@@ -4,14 +4,22 @@
         <Console name="ConsoleAppender" target="SYSTEM_OUT">
             <PatternLayout pattern="%msg%n" />
         </Console>
+        <!-- 
         <File name="FileAppender" fileName="application-${date:yyyyMMdd}.log" immediateFlush="false" append="true">
             <PatternLayout pattern="%d{yyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
         </File>
+         -->
     </Appenders>
     <Loggers>
-        <Root level="debug">
+        <Root level="info">
             <AppenderRef ref="ConsoleAppender" />
-            <AppenderRef ref="FileAppender"/>
         </Root>
+        <!-- avoid duplicated logs with additivity=false -->
+        <Logger name="org.apache.http" level="info" additivity="false">
+            <AppenderRef ref="ConsoleAppender"/>
+        </Logger>
+        <Logger name="com.keyfactor" level="debug" additivity="false">
+            <AppenderRef ref="ConsoleAppender"/>
+        </Logger>
     </Loggers>
 </Configuration>
