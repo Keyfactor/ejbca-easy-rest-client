@@ -1,6 +1,6 @@
 /*************************************************************************
  *                                                                       *
- *  Keyfactor Commons                                                    *
+ *  Keyfactor Community                                                  *
  *                                                                       *
  *  This software is free software; you can redistribute it and/or       *
  *  modify it under the terms of the GNU Lesser General Public           *
@@ -65,8 +65,8 @@ public abstract class ErceCommandBase extends CommandBase {
 				"Complete path to a keystore used to authenticate"));
 		registerParameter(new Parameter(AUTHENTICATION_KEYSTORE_PASS_ARGS, "Keystore Password", MandatoryMode.OPTIONAL,
 				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Authentication Keystore Password"));
-		this.registerParameter(new Parameter(AUTHENTICATION_KEYSTORE_PASS_ARGS_PROMPT_PROMPT, "",
-				MandatoryMode.OPTIONAL, StandaloneMode.FORBID, ParameterMode.PASSWORD,
+		registerParameter(new Parameter(AUTHENTICATION_KEYSTORE_PASS_ARGS_PROMPT_PROMPT, "", MandatoryMode.OPTIONAL,
+				StandaloneMode.FORBID, ParameterMode.PASSWORD,
 				"Set this flag to be prompted for the Authentication Keystore password"));
 
 		registerParameter(new Parameter(HOSTNAME_ARG, "hostname:port", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
@@ -116,7 +116,7 @@ public abstract class ErceCommandBase extends CommandBase {
 	 * passing them on.
 	 * 
 	 */
-	private ParameterContainer stripSharedParameters(ParameterContainer parameters) {
+	protected ParameterContainer stripSharedParameters(ParameterContainer parameters) {
 		ParameterContainer defensiveCopy = new ParameterContainer(parameters);
 		final String keystoreFileName = parameters.get(AUTHENTICATION_KEYSTORE_FILE_ARGS);
 		if (keystoreFileName != null) {

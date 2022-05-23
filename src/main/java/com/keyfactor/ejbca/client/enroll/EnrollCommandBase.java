@@ -1,6 +1,6 @@
 /*************************************************************************
  *                                                                       *
- *  Keyfactor Commons                                                    *
+ *  Keyfactor Community                                                  *
  *                                                                       *
  *  This software is free software; you can redistribute it and/or       *
  *  modify it under the terms of the GNU Lesser General Public           *
@@ -10,8 +10,9 @@
  *  See terms of license at gnu.org.                                     *
  *                                                                       *
  *************************************************************************/
-package com.keyfactor.ejbca.client;
+package com.keyfactor.ejbca.client.enroll;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -22,9 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.Security;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
@@ -33,17 +31,9 @@ import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
-import org.apache.log4j.Logger;
-import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.openssl.PEMKeyPair;
-import org.bouncycastle.openssl.PEMParser;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
-import org.bouncycastle.util.io.pem.PemObject;
-import org.bouncycastle.util.io.pem.PemReader;
 import org.ejbca.ui.cli.infrastructure.command.CommandResult;
 import org.ejbca.ui.cli.infrastructure.parameter.Parameter;
 import org.ejbca.ui.cli.infrastructure.parameter.ParameterContainer;
@@ -54,20 +44,16 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import com.keyfactor.ejbca.client.ErceCommandBase;
 import com.keyfactor.ejbca.util.Base64;
 import com.keyfactor.ejbca.util.CertTools;
-import com.keyfactor.ejbca.util.KeyTools;
 
-/**
- * A CLI command which invokes the "pkcs10enroll" REST command
- *
- */
-public class EnrollCommand extends ErceCommandBase {
+public abstract class EnrollCommandBase extends ErceCommandBase {
 
-	private static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
+	private static final String MAINCOMMAND = "enroll";
 
-	private static final String PUBKEY_ARGS = "--pubkey";
-	private static final String PRIVKEY_ARGS = "--privkey";
+	protected static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
+
 	private static final String SDN_ARG = "--subjectdn";
 	private static final String SAN_ARG = "--subjectaltname";
 	private static final String CERTIFICATE_PROFILE_ARGS = "--certificateprofile";
@@ -75,15 +61,15 @@ public class EnrollCommand extends ErceCommandBase {
 	private static final String CA_ARG = "--ca";
 	private static final String USERNAME_ARGS = "--username";
 	private static final String USERPASS_ARGS = "--password";
+	private static final String USERPASS_PROMTP_ARGS = "-p";
 	private static final String DESTINATION_ARG = "--destination";
 
-	{
 
-		registerParameter(new Parameter(PUBKEY_ARGS, "Public Key File", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Complete path to the public key to sign"));
-		registerParameter(
-				new Parameter(PRIVKEY_ARGS, "Private Key file", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
-						ParameterMode.ARGUMENT, "Complete path to the private key associated with the public key."));
+	{
+		registerDefaultParameters();
+	}
+
+	private void registerDefaultParameters() {
 		registerParameter(new Parameter(CA_ARG, "CA Name", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Certificate Authority name"));
 		registerParameter(new Parameter(END_ENTITY_PROFILE_ARGS, "End Entity Profile Name", MandatoryMode.MANDATORY,
@@ -96,39 +82,67 @@ public class EnrollCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT, "Requested Subject Alternative name of the enrolled user."));
 		registerParameter(new Parameter(USERNAME_ARGS, "Username", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Username for the end entity"));
-		registerParameter(new Parameter(USERPASS_ARGS, "Enrollment Password", MandatoryMode.MANDATORY,
+		registerParameter(new Parameter(USERPASS_ARGS, "Enrollment Password", MandatoryMode.OPTIONAL,
 				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Enrollment Password for the enrolled end entity."));
+		registerParameter(new Parameter(USERPASS_PROMTP_ARGS, "", MandatoryMode.OPTIONAL,
+				StandaloneMode.FORBID, ParameterMode.PASSWORD,
+				"Set this flag to be prompted for the Enrollment password"));
 		registerParameter(new Parameter(DESTINATION_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Destination directory. Optional, pwd will be used if left out."));
-	}
-
-	private static final Logger log = Logger.getLogger(EnrollCommand.class);
-
-	public static void main(String[] args) {
-		Security.addProvider(new BouncyCastleProvider());
-		EnrollCommand enrollCommand = new EnrollCommand();
-		enrollCommand.execute(args);
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	protected CommandResult execute(ParameterContainer parameters) {
-		final String pubkeyFilename = parameters.get(PUBKEY_ARGS);
-		final String privkeyFilename = parameters.get(PRIVKEY_ARGS);
 		final String subjectAltName = parameters.get(SAN_ARG);
 		final String endEntityProfileName = parameters.get(END_ENTITY_PROFILE_ARGS);
 		final String certificateProfileName = parameters.get(CERTIFICATE_PROFILE_ARGS);
 		final String caName = parameters.get(CA_ARG);
 		final String subjectDn = parameters.get(SDN_ARG);
 		final String username = parameters.get(USERNAME_ARGS);
-		final String password = parameters.get(USERPASS_ARGS);
+		
+		String password;
+		if (parameters.containsKey(USERPASS_ARGS)) {
+			password = parameters.get(USERPASS_ARGS);
+			parameters.remove(USERPASS_ARGS);
+			if (password.startsWith("file:") && (password.length() > 5)) {
+				final String fileName = password.substring(5);
+				// Read the password file and just take the first line as being the password
+				try {
+					BufferedReader br = new BufferedReader(new FileReader(fileName));
+					password = br.readLine();
+					br.close();
+					if (password != null) {
+						// Trim it, it's so easy for people to include spaces after a line, and a
+						// password should never end with a space
+						password = password.trim();
+					}
+					if ((password == null) || (password.length() == 0)) {
+						getLogger().error("File '" + fileName + "' does not contain any lines.");
+						return CommandResult.CLI_FAILURE;
+					}
+				} catch (IOException e) {
+					getLogger().error("File '" + fileName + "' can not be read: " + e.getMessage());
+					return CommandResult.CLI_FAILURE;
+				}
+			}
+		} else if (parameters.containsKey(USERPASS_PROMTP_ARGS)) {
+			password = parameters.get(USERPASS_PROMTP_ARGS);
+			parameters.remove(USERPASS_PROMTP_ARGS);
+		} else {
+			getLogger().error("Password should have been specified as an argument (" + USERPASS_ARGS + ") or as a prompt flag ("+ USERPASS_PROMTP_ARGS + ")");
+			return CommandResult.CLI_FAILURE;
+		}
+		
 
+		
 		File destination;
 		if (parameters.containsKey(DESTINATION_ARG)) {
 			final String destinationDirName = parameters.get(DESTINATION_ARG);
 			destination = new File(destinationDirName);
 			if (!destination.isDirectory() || !destination.canWrite()) {
-				log.error("Directory " + destinationDirName + " was not a directory, or could not be written to.");
+				getLogger()
+						.error("Directory " + destinationDirName + " was not a directory, or could not be written to.");
 				return CommandResult.CLI_FAILURE;
 			}
 		} else {
@@ -136,13 +150,10 @@ public class EnrollCommand extends ErceCommandBase {
 		}
 
 		try {
-			PublicKey publicKey = readPublicKey(pubkeyFilename);
-			final PrivateKey privateKey = readPrivateKey(privkeyFilename);
 
 			X500Name userDn = new X500Name(subjectDn);
 
-			PKCS10CertificationRequest pkcs10 = CertTools.generateCertificateRequest(userDn, subjectAltName, publicKey,
-					privateKey);
+			PKCS10CertificationRequest pkcs10 = getCsr(userDn, subjectAltName);
 
 			final StringWriter pemout = new StringWriter();
 			JcaPEMWriter pm = new JcaPEMWriter(pemout);
@@ -161,7 +172,7 @@ public class EnrollCommand extends ErceCommandBase {
 			param.writeJSONString(out);
 			final String payload = out.toString();
 
-			final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(getCommandUrl())
+			final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(COMMAND_URL)
 					.toString();
 			final HttpPost request = new HttpPost(restUrl);
 			request.setEntity(new StringEntity(payload));
@@ -172,11 +183,11 @@ public class EnrollCommand extends ErceCommandBase {
 
 				switch (response.getStatusLine().getStatusCode()) {
 				case 404:
-					log.error("Return code was: 404: " + responseString);
+					getLogger().error("Return code was: 404: " + responseString);
 					break;
 				case 200:
 				case 201:
-					log.info("End entity with username " + username + " has succesfully been enrolled.");
+					getLogger().info("End entity with username " + username + " has succesfully been enrolled.");
 					final JSONParser jsonParser = new JSONParser();
 					final JSONObject actualJsonObject = (JSONObject) jsonParser.parse(responseString);
 					final String base64cert = (String) actualJsonObject.get("certificate");
@@ -190,20 +201,22 @@ public class EnrollCommand extends ErceCommandBase {
 						fos.write(pembytes);
 						fos.close();
 					} catch (IOException e) {
-						log.error("Could not write to certificate file " + certificateFile + ". " + e.getMessage());
+						getLogger().error(
+								"Could not write to certificate file " + certificateFile + ". " + e.getMessage());
 						return CommandResult.FUNCTIONAL_FAILURE;
 					}
-					log.info("PEM certificate written to file '" + certificateFile + "'");
+					getLogger().info("PEM certificate written to file '" + certificateFile + "'");
 					break;
 				default:
-					log.error("Return code was: " + response.getStatusLine().getStatusCode() + ": " + responseString);
+					getLogger().error(
+							"Return code was: " + response.getStatusLine().getStatusCode() + ": " + responseString);
 					break;
 				}
 				return CommandResult.SUCCESS;
 
 			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException
 					| ParseException | CertificateParsingException e) {
-				log.error("Could not perform request: " + e.getMessage());
+				getLogger().error("Could not perform request: " + e.getMessage());
 				return CommandResult.FUNCTIONAL_FAILURE;
 			}
 		} catch (IOException e) {
@@ -211,53 +224,12 @@ public class EnrollCommand extends ErceCommandBase {
 		}
 	}
 
-	protected String getCommandUrl() {
-		return COMMAND_URL;
-	}
-
-	private PublicKey readPublicKey(final String filename) throws IOException {
-		FileReader keyReader = new FileReader(new File(filename));
-		try (PemReader pemReader = new PemReader(keyReader)) {
-			PemObject pemObject = pemReader.readPemObject();
-			byte[] content = pemObject.getContent();
-			return KeyTools.getPublicKeyFromBytes(content);
-		}
-	}
-
-	private PrivateKey readPrivateKey(final String filename) throws IOException {
-		try (FileReader keyReader = new FileReader(new File(filename))) {
-
-			PEMParser pemParser = new PEMParser(keyReader);
-			Object pemObject = pemParser.readObject();
-			PrivateKeyInfo privateKeyInfo;
-			if (pemObject instanceof PEMKeyPair) {
-				privateKeyInfo = ((PEMKeyPair) pemObject).getPrivateKeyInfo();
-			} else {
-				privateKeyInfo = PrivateKeyInfo.getInstance(pemParser.readObject());
-			}
-			JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-			return converter.getPrivateKey(privateKeyInfo);
-		}
-	}
-
 	@Override
-	public String getMainCommand() {
-		return "enroll";
+	public String[] getCommandPath() {
+		return new String[] { MAINCOMMAND };
 	}
 
-	@Override
-	public String getCommandDescription() {
-		return "Command for enrolling to EJBCA.";
-	}
-
-	@Override
-	public String getFullHelpText() {
-		return "Command for enrolling to EJBCA. Can be used to enroll using a supplied public and private key. Example usage: --authkeystore=/Users/foo/superadmin.p12 --authkeystorepass=foo123 --pubkey=/Users/foo/public.pem --privkey=/Users/foo/key.pem --endentityprofile=simple --certificateprofile=simple --ca=foo --subjectaltname=\"\"  --hostname=localhost:8443 --destination=/Users/foo/ --subjectdn=\"CN= clitest13\" --username=clitest13 --password=foo123";
-	}
-
-	@Override
-	protected Logger getLogger() {
-		return log;
-	}
+	protected abstract PKCS10CertificationRequest getCsr(final X500Name userdn, final String subjectAltName)
+			throws IOException;
 
 }

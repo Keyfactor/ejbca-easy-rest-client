@@ -19,7 +19,10 @@ java -jar target/erce-0.0.5-SNAPSHOT-jar-with-dependencies.jar --help
 
 ## Community Support
 
-TBD
+In our Community we welcome contributions. The Community software is open source and community supported, there is no support SLA, but a helpful best-effort Community.
+
+* To report a problem or suggest a new feature, use the **[Issues](../../issues)** tab. 
+* If you want to contribute actual bug fixes or proposed enhancements, use the **[Pull requests](../../pulls)** tab.
 
 ## License
 EJBCA Community is licensed under the LGPL license, please see **[LICENSE](LICENSE)**.
