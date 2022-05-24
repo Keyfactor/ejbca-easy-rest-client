@@ -75,6 +75,11 @@ public abstract class ErceCommandBase extends CommandBase {
 
 	@Override
 	public CommandResult execute(String... arguments) {
+		ParameterContainer parameters = parameterHandler.parseParameters(arguments);
+		if (parameters.containsKey(ParameterHandler.HELP_KEY)) {
+			printManPage();
+			return CommandResult.SUCCESS;
+		}
 		boolean keystorePasswordPromt = false;
 		boolean keystorePasswordSet = false;
 		for (String argument : arguments) {
@@ -91,19 +96,14 @@ public abstract class ErceCommandBase extends CommandBase {
 			return CommandResult.CLI_FAILURE;
 		}
 
-		ParameterContainer parameters = parameterHandler.parseParameters(arguments);
-		if (parameters.containsKey(ParameterHandler.HELP_KEY)) {
-			printManPage();
-			return CommandResult.SUCCESS;
+		ParameterContainer strippedParameters = stripSharedParameters(parameters);
+		if (strippedParameters == null) {
+			// There was an error in reading the shared parameters
+			return CommandResult.CLI_FAILURE;
 		} else {
-			ParameterContainer strippedParameters = stripSharedParameters(parameters);
-			if (strippedParameters == null) {
-				// There was an error in reading the shared parameters
-				return CommandResult.CLI_FAILURE;
-			} else {
-				return execute(strippedParameters);
-			}
+			return execute(strippedParameters);
 		}
+
 	}
 
 	@Override

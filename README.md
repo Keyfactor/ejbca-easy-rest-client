@@ -13,9 +13,6 @@ Erce is a fully self contained Maven project. To build:
 mvn clean package
 ```
 3. Run the resulting .jar file with the --help flag to see the available commands. 
-```
-java -jar target/erce-0.0.5-SNAPSHOT-jar-with-dependencies.jar --help  
-```
 
 ## Community Support
 

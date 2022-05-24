@@ -54,6 +54,9 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 
 	protected static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
 
+	
+	protected  static final String DESTINATION_ARG = "--destination";
+	
 	private static final String SDN_ARG = "--subjectdn";
 	private static final String SAN_ARG = "--subjectaltname";
 	private static final String CERTIFICATE_PROFILE_ARGS = "--certificateprofile";
@@ -62,9 +65,12 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 	private static final String USERNAME_ARGS = "--username";
 	private static final String USERPASS_ARGS = "--password";
 	private static final String USERPASS_PROMTP_ARGS = "-p";
-	private static final String DESTINATION_ARG = "--destination";
 
-
+	private File destination;	
+	private X509Certificate certificate;
+	private String username;
+	private String password;
+	
 	{
 		registerDefaultParameters();
 	}
@@ -99,9 +105,8 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 		final String certificateProfileName = parameters.get(CERTIFICATE_PROFILE_ARGS);
 		final String caName = parameters.get(CA_ARG);
 		final String subjectDn = parameters.get(SDN_ARG);
-		final String username = parameters.get(USERNAME_ARGS);
+		username = parameters.get(USERNAME_ARGS);
 		
-		String password;
 		if (parameters.containsKey(USERPASS_ARGS)) {
 			password = parameters.get(USERPASS_ARGS);
 			parameters.remove(USERPASS_ARGS);
@@ -134,12 +139,9 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 			return CommandResult.CLI_FAILURE;
 		}
 		
-
-		
-		File destination;
 		if (parameters.containsKey(DESTINATION_ARG)) {
 			final String destinationDirName = parameters.get(DESTINATION_ARG);
-			destination = new File(destinationDirName);
+			this.destination = new File(destinationDirName);
 			if (!destination.isDirectory() || !destination.canWrite()) {
 				getLogger()
 						.error("Directory " + destinationDirName + " was not a directory, or could not be written to.");
@@ -192,7 +194,7 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 					final JSONObject actualJsonObject = (JSONObject) jsonParser.parse(responseString);
 					final String base64cert = (String) actualJsonObject.get("certificate");
 					byte[] certBytes = Base64.decode(base64cert.getBytes());
-					X509Certificate certificate = CertTools.getCertfromByteArray(certBytes);
+					certificate = CertTools.getCertfromByteArray(certBytes);
 					byte[] pembytes = CertTools.getPemFromCertificate(certificate);
 					File certificateFile = new File(destination, username + ".pem");
 					// Write the resulting cert to file
@@ -231,5 +233,20 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 
 	protected abstract PKCS10CertificationRequest getCsr(final X500Name userdn, final String subjectAltName)
 			throws IOException;
+
+	protected File getDestination() {
+		return destination;
+	}
+
+	protected X509Certificate getCertificate() {
+		return certificate;
+	}
+
+	protected String getUsername() {
+		return username;
+	}
+	protected String getPassword() {
+		return password;
+	}
 
 }

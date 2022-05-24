@@ -38,7 +38,7 @@ import com.keyfactor.ejbca.util.CertTools;
 import com.keyfactor.ejbca.util.KeyTools;
 
 /**
- * A CLI command which invokes the "pkcs10enroll" REST command
+ * A CLI command which invokes the "pkcs10enroll" REST command 
  *
  */
 public class EnrollWithKeypairCommand extends EnrollCommandBase {
