@@ -113,7 +113,7 @@
 				<version>3.0.0</version>
 				<executions>
 					<execution>
-						<phase>package</phase>
+						<phase>prepare-package</phase>
 						<goals>
 							<goal>exec</goal>
 						</goals>
@@ -130,7 +130,7 @@
 						<argument>com.primekey.anttools.ServiceManifestBuilder</argument>
 						<argument>${project.build.directory}/classes</argument>
 						<argument>org.ejbca.ui.cli.infrastructure.command.CliCommandPlugin</argument>
-						<argument>src/main/resources</argument>
+						<argument>target/classes</argument>
 					</arguments>
 				</configuration>
 			</plugin>
@@ -168,32 +168,6 @@
 					</execution>
 				</executions>
 			</plugin>
-
-
-			<!--
-			<plugin>
-				<artifactId>maven-assembly-plugin</artifactId>
-				<configuration>
-					<descriptors>
-						<descriptor>src/assembly/src.xml</descriptor>
-					</descriptors>
-				</configuration>
-				<executions>
-					<execution>
-						<id>make-assembly</id>
-						<phase>package</phase>
-						<goals>
-							<goal>single</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-	-->
-
-
 		</plugins>
-
 	</build>
-
-
 </project>
