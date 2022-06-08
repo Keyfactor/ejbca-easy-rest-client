@@ -13,6 +13,10 @@ mvn clean package
 ```
 3. Run the resulting .jar file with the --help flag to see the available commands. 
 
+```
+java -jar target/erce-x.y.x-SNAPSHOT.jar --help
+```
+
 ## Community Support
 
 In our Community we welcome contributions. The Community software is open source and community supported, there is no support SLA, but a helpful best-effort Community.
@@ -21,10 +25,11 @@ In our Community we welcome contributions. The Community software is open source
 * If you want to contribute actual bug fixes or proposed enhancements, use the **[Pull requests](../../pulls)** tab.
 
 ## License
-EJBCA Community is licensed under the LGPL license, please see **[LICENSE](LICENSE)**.
+Erce is licensed under the LGPL license, please see **[LICENSE](LICENSE)**.
 
 ## Related projects 
 
+* [Keyfactor/ejbca-ce](https://github.com/Keyfactor/ejbca-ce) 
 * [Keyfactor/ansible-ejbca-signserver-playbooks](https://github.com/Keyfactor/ansible-ejbca-signserver-playbooks) 
 * [Keyfactor/ejbca-tools](https://github.com/Keyfactor/ejbca-tools) 
 * [Keyfactor/ejbca-containers](https://github.com/Keyfactor/ejbca-containers) 
