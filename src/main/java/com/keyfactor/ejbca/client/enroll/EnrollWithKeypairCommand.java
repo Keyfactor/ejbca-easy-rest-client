@@ -34,8 +34,7 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.MandatoryMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.ParameterMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 
-import com.keyfactor.ejbca.util.CertTools;
-import com.keyfactor.ejbca.util.KeyTools;
+import com.keyfactor.util.keys.KeyTools;
 
 /**
  * A CLI command which invokes the "pkcs10enroll" REST command 
@@ -117,7 +116,7 @@ public class EnrollWithKeypairCommand extends EnrollCommandBase {
 	protected PKCS10CertificationRequest getCsr(final X500Name userdn, final String subjectAltName) throws IOException {
 		final PublicKey publicKey = readPublicKey(pubkeyFilename);
 		final PrivateKey privateKey = readPrivateKey(privkeyFilename);
-		return CertTools.generateCertificateRequest(userdn, subjectAltName, publicKey, privateKey);
+		return generateCertificateRequest(userdn, subjectAltName, publicKey, privateKey);
 	}
 
 }

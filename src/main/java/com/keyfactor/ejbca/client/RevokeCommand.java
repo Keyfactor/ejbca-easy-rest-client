@@ -41,7 +41,7 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.ParameterMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 import org.json.simple.JSONObject;
 
-import com.keyfactor.ejbca.util.CertTools;
+import com.keyfactor.util.CertTools;
 
 /**
  * A CLI command for revoking a certificate through the EJBCA REST API.
@@ -104,7 +104,7 @@ public class RevokeCommand extends ErceCommandBase {
 			// Let's read the SN from the given file.
 			final List<X509Certificate> certificates;
 			try {
-				certificates = CertTools.getCertsFromPEM(certificateFile);
+				certificates = CertTools.getCertsFromPEM(certificateFile, X509Certificate.class);
 			} catch (CertificateParsingException e) {
 				log.error("Certificate file " + certificateFile + " does not appear to be a correct certificate.");
 				return CommandResult.CLI_FAILURE;

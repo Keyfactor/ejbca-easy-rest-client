@@ -1,6 +1,6 @@
 /*************************************************************************
  *                                                                       *
- *  Keyfactor Community                                                  *
+79 *  Keyfactor Community                                                  *
  *                                                                       *
  *  This software is free software; you can redistribute it and/or       *
  *  modify it under the terms of the GNU Lesser General Public           *
@@ -76,6 +76,9 @@ public abstract class ErceCommandBase extends CommandBase {
 	@Override
 	public CommandResult execute(String... arguments) {
 		ParameterContainer parameters = parameterHandler.parseParameters(arguments);
+		if(parameters == null) {
+			return CommandResult.CLI_FAILURE;
+		}
 		if (parameters.containsKey(ParameterHandler.HELP_KEY)) {
 			printManPage();
 			return CommandResult.SUCCESS;

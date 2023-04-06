@@ -23,16 +23,31 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.log4j.Logger;
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.DERSet;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.ExtensionsGenerator;
+import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.ejbca.ui.cli.infrastructure.command.CommandResult;
 import org.ejbca.ui.cli.infrastructure.parameter.Parameter;
@@ -45,11 +60,13 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 import com.keyfactor.ejbca.client.ErceCommandBase;
-import com.keyfactor.ejbca.util.Base64;
-import com.keyfactor.ejbca.util.CertTools;
+import com.keyfactor.util.Base64;
+import com.keyfactor.util.CertTools;
 
 public abstract class EnrollCommandBase extends ErceCommandBase {
 
+	private static final Logger log = Logger.getLogger(ErceCommandBase.class);
+	
 	private static final String MAINCOMMAND = "enroll";
 
 	protected static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
@@ -194,15 +211,14 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 					final JSONObject actualJsonObject = (JSONObject) jsonParser.parse(responseString);
 					final String base64cert = (String) actualJsonObject.get("certificate");
 					byte[] certBytes = Base64.decode(base64cert.getBytes());
-					certificate = CertTools.getCertfromByteArray(certBytes);
-					byte[] pembytes = CertTools.getPemFromCertificate(certificate);
+					certificate = CertTools.getCertfromByteArray(certBytes, X509Certificate.class);
 					File certificateFile = new File(destination, username + ".pem");
 					// Write the resulting cert to file
 					try {
 						FileOutputStream fos = new FileOutputStream(certificateFile);
-						fos.write(pembytes);
+						fos.write(CertTools.getPemFromCertificate(certificate).getBytes());
 						fos.close();
-					} catch (IOException e) {
+					} catch (IOException | CertificateEncodingException e) {
 						getLogger().error(
 								"Could not write to certificate file " + certificateFile + ". " + e.getMessage());
 						return CommandResult.FUNCTIONAL_FAILURE;
@@ -247,6 +263,33 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 	}
 	protected String getPassword() {
 		return password;
+	}
+	
+	protected static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN,
+			final String subjectAltName, final PublicKey publicKey, final PrivateKey privateKey) throws IOException {
+		// Add an altName extension
+		ExtensionsGenerator extensionsGenerator = new ExtensionsGenerator();
+		if (!StringUtils.isBlank(subjectAltName)) {
+			GeneralNames san = CertTools.getGeneralNamesFromAltName(subjectAltName);
+			extensionsGenerator.addExtension(Extension.subjectAlternativeName, false, san);
+		}
+		final Extensions extensions = extensionsGenerator.generate();
+		// Add the extension(s) to the PKCS#10 request as a pkcs_9_at_extensionRequest
+		ASN1EncodableVector extensionattr = new ASN1EncodableVector();
+		extensionattr.add(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+		extensionattr.add(new DERSet(extensions));
+		// Complete the Attribute section of the request, the set (Attributes) contains
+		// one sequence (Attribute)
+		ASN1EncodableVector v = new ASN1EncodableVector();
+		v.add(new DERSequence(extensionattr));
+		DERSet attributes = new DERSet(v);
+		try {
+			return CertTools.genPKCS10CertificationRequest("SHA256WithRSA", userDN, publicKey, attributes, privateKey, BouncyCastleProvider.PROVIDER_NAME);
+		} catch (OperatorCreationException e) {
+			log.error("Unable to generate CSR: " + e.getLocalizedMessage());
+			return null;
+		}
+
 	}
 
 }
