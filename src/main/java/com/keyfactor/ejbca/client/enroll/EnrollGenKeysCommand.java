@@ -83,9 +83,8 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 	{
 		registerParameter(new Parameter(KEYALG_ARG, "cipher", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT,
-				"Cipher – must be one of [ " + AlgorithmConstants.KEYALGORITHM_RSA + ", "
-						+ AlgorithmConstants.KEYALGORITHM_EC + ", " + AlgorithmConstants.KEYALGORITHM_ED25519 + ", "
-						+ AlgorithmConstants.KEYALGORITHM_ED448 + "]"));
+				"Cipher must be one of [ " + KeyTools.KEYALGORITHM_RSA + ", " + KeyTools.KEYALGORITHM_EC + ", "
+						+ KeyTools.KEYALGORITHM_ED25519 + ", " + KeyTools.KEYALGORITHM_ED448 + "]"));
 		StringBuilder ecCurvesFormatted = new StringBuilder();
 		ecCurvesFormatted.append("[");
 		for (String curveName : EC_CURVES) {
