@@ -29,8 +29,18 @@
 		<!-- https://mvnrepository.com/artifact/org.bouncycastle/bcpkix-jdk18on -->
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.73</version>
+		</dependency>
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcutil-jdk18on</artifactId>
+			<version>1.73</version>
+		</dependency>
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcpkix-jdk18on</artifactId>
-			<version>1.72</version>
+			<version>1.73</version>
 		</dependency>
 		<!-- https://mvnrepository.com/artifact/commons-io/commons-io -->
 		<dependency>
@@ -103,7 +113,7 @@
 		<dependency>
 			<groupId>com.keyfactor</groupId>
 			<artifactId>x509-common-util</artifactId>
-			<version>0.1</version>
+			<version>0.6.0-SNAPSHOT</version>
 		</dependency>
 
 	</dependencies>

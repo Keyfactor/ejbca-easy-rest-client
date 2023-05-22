@@ -19,6 +19,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
@@ -29,6 +30,7 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.RSAPublicKey;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -62,6 +64,8 @@ import org.json.simple.parser.ParseException;
 import com.keyfactor.ejbca.client.ErceCommandBase;
 import com.keyfactor.util.Base64;
 import com.keyfactor.util.CertTools;
+import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
+
 
 public abstract class EnrollCommandBase extends ErceCommandBase {
 
@@ -283,8 +287,20 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 		ASN1EncodableVector v = new ASN1EncodableVector();
 		v.add(new DERSequence(extensionattr));
 		DERSet attributes = new DERSet(v);
+		List<String> sigAlgs = AlgorithmTools.getSignatureAlgorithms(publicKey);
+		if (sigAlgs.size() == 0) {
+			log.error("Unable to generate CSR, no signature algorithms available for public key of type: " + publicKey.getClass().getName());
+			return null;
+		}
+		final String sigAlg;
+		if ( publicKey instanceof RSAPublicKey ) {
+			sigAlg = "SHA256WithRSA"; // Avoid SHA1WithRSA that AlgorithmTools.getSignatureAlgorithms will return
+		} else {
+			sigAlg = sigAlgs.get(0);
+		}
 		try {
-			return CertTools.genPKCS10CertificationRequest("SHA256WithRSA", userDN, publicKey, attributes, privateKey, BouncyCastleProvider.PROVIDER_NAME);
+		log.error("SigAlg: "+sigAlg);
+			return CertTools.genPKCS10CertificationRequest(sigAlg, userDN, publicKey, attributes, privateKey, BouncyCastleProvider.PROVIDER_NAME);
 		} catch (OperatorCreationException e) {
 			log.error("Unable to generate CSR: " + e.getLocalizedMessage());
 			return null;
