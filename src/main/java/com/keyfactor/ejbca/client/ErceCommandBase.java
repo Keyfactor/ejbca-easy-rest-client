@@ -92,6 +92,12 @@ public abstract class ErceCommandBase extends CommandBase {
 				keystorePasswordSet = true;
 			}
 		}
+		if (!keystorePasswordPromt && !keystorePasswordSet) {
+			// You have to do one...
+			getLogger().error("You must specify either " + AUTHENTICATION_KEYSTORE_PASS_ARGS + " or "
+				+ AUTHENTICATION_KEYSTORE_PASS_ARGS_PROMPT_PROMPT + ".");
+			return CommandResult.CLI_FAILURE;
+		}
 		if (keystorePasswordPromt && keystorePasswordSet) {
 			// Can't do both...
 			getLogger().error("Can't define both " + AUTHENTICATION_KEYSTORE_PASS_ARGS + " and specify a prompt ("

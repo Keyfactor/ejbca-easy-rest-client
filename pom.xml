@@ -2,7 +2,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.keyfactor</groupId>
 	<artifactId>erce</artifactId>
-	<version>0.0.8-SNAPSHOT</version>
+	<version>0.0.9-SNAPSHOT</version>
 	<name>Easy REST Client for EJBCA</name>
 	<description>Easy REST Client for EJBCA</description>
 
@@ -30,17 +30,17 @@
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk18on</artifactId>
-			<version>1.73</version>
+			<version>1.75</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcutil-jdk18on</artifactId>
-			<version>1.73</version>
+			<version>1.75</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcpkix-jdk18on</artifactId>
-			<version>1.73</version>
+			<version>1.75</version>
 		</dependency>
 		<!-- https://mvnrepository.com/artifact/commons-io/commons-io -->
 		<dependency>
@@ -113,7 +113,7 @@
 		<dependency>
 			<groupId>com.keyfactor</groupId>
 			<artifactId>x509-common-util</artifactId>
-			<version>0.6.0-SNAPSHOT</version>
+			<version>0.8.0</version>
 		</dependency>
 
 	</dependencies>

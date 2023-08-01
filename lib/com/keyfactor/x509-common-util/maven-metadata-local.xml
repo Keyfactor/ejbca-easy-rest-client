@@ -3,10 +3,10 @@
   <groupId>com.keyfactor</groupId>
   <artifactId>x509-common-util</artifactId>
   <versioning>
-    <release>0.1</release>
+    <release>0.8.0</release>
     <versions>
-      <version>0.1</version>
+      <version>0.8.0</version>
     </versions>
-    <lastUpdated>20230406060743</lastUpdated>
+    <lastUpdated>20230801060743</lastUpdated>
   </versioning>
 </metadata>
