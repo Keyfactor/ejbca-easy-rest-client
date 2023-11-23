@@ -62,6 +62,7 @@ import org.json.simple.parser.ParseException;
 import com.keyfactor.ejbca.client.ErceCommandBase;
 import com.keyfactor.util.Base64;
 import com.keyfactor.util.CertTools;
+import com.keyfactor.util.certificate.DnComponents;
 
 public abstract class EnrollCommandBase extends ErceCommandBase {
 
@@ -270,7 +271,7 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 		// Add an altName extension
 		ExtensionsGenerator extensionsGenerator = new ExtensionsGenerator();
 		if (!StringUtils.isBlank(subjectAltName)) {
-			GeneralNames san = CertTools.getGeneralNamesFromAltName(subjectAltName);
+			GeneralNames san = DnComponents.getGeneralNamesFromAltName(subjectAltName);
 			extensionsGenerator.addExtension(Extension.subjectAlternativeName, false, san);
 		}
 		final Extensions extensions = extensionsGenerator.generate();
