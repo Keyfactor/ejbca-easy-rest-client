@@ -16,6 +16,11 @@ mvn clean package
 ```
 java -jar target/erce-x.y.x-SNAPSHOT.jar --help
 ```
+An example command can looks like:
+
+```
+java -jar target/erce-0.0.9-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbca/p12/superadmin.p12 --authkeystorepass ****  --endentityprofile "Server" --certificateprofile "Server" --ca ServerCA --subjectaltname "dnsName=test-erces-01.test"  --hostname localhost --destination ./certs --subjectdn "C=SE,O=Keyfactor Community,CN=test-erces-01.test" --username test-erces-01.test -p --keyalg EC --keyspec P-256 --verbose
+```
 
 ## Community Support
 
