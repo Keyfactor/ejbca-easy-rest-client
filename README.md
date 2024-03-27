@@ -1,10 +1,20 @@
-# Erce – The Easy Rest Client for EJBCA [![Discuss](https://img.shields.io/badge/discuss-ejbca-ce?style=flat)](https://github.com/Keyfactor/ejbca-ce/discussions) 
+<!--EJBCA Community logo -->
+<a href="https://ejbca.org">
+    <img src="community-ejbca.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+</a>
+<!--EJBCA Enterprise logo -->
+<a href="https://www.keyfactor.com/products/ejbca-enterprise/">
+    <img src="keyfactor-ejbca-enterprise.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+</a>
 
-Erce is a fully FOSS REST Client for EJBCA Community Edition. Its purpose is to act as a REST-based alterative to the EJBCA CLI and other enrollment protocols such as SCEP and CMP in environments where the UI is not available/optimal, but also to allow for further scripting by branching and extending this implementation. Erce is compatible with EJBCA 7.9.0.1 and later. 
+# Erce – The Easy Rest Client for EJBCA 
+[![Discuss](https://img.shields.io/badge/discuss-ejbca-ce?style=flat)](https://github.com/Keyfactor/ejbca-ce/discussions) 
+
+Erce is a fully FOSS REST Client for EJBCA Community Edition. Its purpose is to act as a REST-based alternative to the EJBCA CLI and other enrollment protocols such as SCEP and CMP in environments where the UI is not available/optimal, but also to allow for further scripting by branching and extending this implementation. Erce is compatible with EJBCA 7.9.0.1 and later. 
 
 ## Get started 
 
-Erce is a fully self contained Maven project. To build:
+Erce is a fully self-contained Maven project. To build:
 
 1. Check out a local branch 
 2. Build and package using Maven:
@@ -23,23 +33,23 @@ java -jar target/erce-0.0.9-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbc
 ```
 
 ## Community Support
+In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. 
 
-In our Community we welcome contributions. The Community software is open source and community supported, there is no support SLA, but a helpful best-effort Community.
+The Community software is open-source and community-supported, meaning that **no SLA** is applicable.
 
-* To report a problem or suggest a new feature, use the **[Issues](../../issues)** tab. 
-* If you want to contribute actual bug fixes or proposed enhancements, use the **[Pull requests](../../pulls)** tab.
-* Ask the community for ideas: **[EJBCA Discussions](https://github.com/Keyfactor/ejbca-ce/discussions)**.  
+* To report a problem or suggest a new feature, go to [Issues](../../issues).
+* If you want to contribute actual bug fixes or proposed enhancements, see the [Contributing Guidelines](CONTRIBUTING.md) and go to [Pull requests](../../pulls).
+
+## Commercial Support
+
+Commercial support is available for [EJBCA Enterprise](https://www.keyfactor.com/products/ejbca-enterprise/).
 
 ## License
-Erce is licensed under the LGPL license, please see **[LICENSE](LICENSE)**.
+For license information, see [LICENSE](LICENSE). 
 
-## Related projects 
-
+## Related Projects
 ### On GitHub
-* [Keyfactor/ejbca-ce](https://github.com/Keyfactor/ejbca-ce) 
-* [Keyfactor/ansible-ejbca-signserver-playbooks](https://github.com/Keyfactor/ansible-ejbca-signserver-playbooks) 
-* [Keyfactor/ejbca-tools](https://github.com/Keyfactor/ejbca-tools) 
-* [Keyfactor/ejbca-containers](https://github.com/Keyfactor/ejbca-containers) 
+See all [Keyfactor EJBCA GitHub projects](https://github.com/orgs/Keyfactor/repositories?q=ejbca). 
 
 ### On DockerHub
-* [EJBCA container on DockerHub](https://hub.docker.com/r/keyfactor/ejbca-ce) 
+See the [EJBCA container on DockerHub](https://hub.docker.com/r/keyfactor/ejbca-ce).
