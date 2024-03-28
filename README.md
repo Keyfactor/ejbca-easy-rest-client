@@ -1,10 +1,10 @@
 <!--EJBCA Community logo -->
 <a href="https://ejbca.org">
-    <img src="community-ejbca.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+    <img src=".github/images/community-ejbca.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
 </a>
 <!--EJBCA Enterprise logo -->
 <a href="https://www.keyfactor.com/products/ejbca-enterprise/">
-    <img src="keyfactor-ejbca-enterprise.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
+    <img src=".github/images/keyfactor-ejbca-enterprise.png?raw=true)" alt="EJBCA logo" title="EJBCA" height="70" />
 </a>
 
 # Erce – The Easy Rest Client for EJBCA 
