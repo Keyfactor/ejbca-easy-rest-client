@@ -17,9 +17,9 @@ Erce is a fully FOSS REST Client for EJBCA Community Edition. Its purpose is to 
 Erce is a fully self-contained Maven project. To build:
 
 1. Check out a local branch 
-2. Build and package using Maven:
+2. Build and package using Maven (-llr is for newer versions of maven to recognize the local repository in the lib directory):
 ```
-mvn clean package
+mvn -llr clean package
 ```
 3. Run the resulting .jar file with the --help flag to see the available commands. 
 
