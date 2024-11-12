@@ -114,7 +114,7 @@ public class RevokeCommand extends ErceCommandBase {
 			}
 			// If it's a chain, we just need to use the first cert in the chain.
 			serialnumber = CertTools.getSerialNumberAsString(certificates.get(0));
-			issuerDn = certificates.get(0).getIssuerDN().toString();
+			issuerDn = CertTools.getIssuerDN(certificates.get(0));
 		}
 
 		issuerDn = escapeInvalidUrlCharacters(issuerDn);

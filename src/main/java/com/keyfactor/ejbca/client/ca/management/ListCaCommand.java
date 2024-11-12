@@ -35,8 +35,6 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
-import com.keyfactor.util.CertTools;
-
 /**
  * Lists all available CAs
  */
@@ -72,24 +70,26 @@ public class ListCaCommand extends CaCommandBase {
 					break;
 				case 200:
 				case 201:
-					final JSONParser jsonParser = new JSONParser();					
-					final JSONArray jsonArray = (JSONArray) jsonParser.parse(responseString);
+					final JSONParser jsonParser = new JSONParser();			
+					final JSONObject returnObject = (JSONObject) jsonParser.parse(responseString);
+					final JSONArray jsonArray = (JSONArray) returnObject.get("certificate_authorities");
 					@SuppressWarnings("unchecked")
 		            Iterator<JSONObject> iterator = jsonArray.iterator();
 					StringBuilder stringBuilder = new StringBuilder();
 					List<String[]> caContents = new ArrayList<>();
 		            while (iterator.hasNext()) {
-		            	JSONObject jsonObject = iterator.next();
-		            	final String issuerDn = (String) jsonObject.get(ISSUER_DN_LABEL);
-		            	final String subjectDn = (String) jsonObject.get(SUBJECT_DN_LABEL);
-		            	final String caId = (String) jsonObject.get(ID_LABEL);
-		            	final String name = (String) jsonObject.get(NAME_LABEL);
-		            	final String expires = (String) jsonObject.get(EXPIRES_LABEL);
-		            	caContents.add(new String[]{name, caId, subjectDn, issuerDn, expires});
+		            	JSONObject caRow = iterator.next();
+		            	final String issuerDn = (String) caRow.get(ISSUER_DN_LABEL);
+		            	final String subjectDn = (String) caRow.get(SUBJECT_DN_LABEL);
+		            	final Long caId = (Long) caRow.get(ID_LABEL);
+		            	final String name = (String) caRow.get(NAME_LABEL);
+		            	final String expires = (String) caRow.get(EXPIRES_LABEL);
+		            	final Boolean isExternal = (Boolean) caRow.get(IS_EXTERNAL_LABEL);
+		            	caContents.add(new String[]{name, caId.toString(), isExternal.toString(), subjectDn, issuerDn, expires});
 
 		            }
 		            stringBuilder.append(bold("The following CAs are available in the current instance:\n"));
-		            stringBuilder.append(formatTable(1, new String[] { "Name:", "CA ID:", "Subject DN:", "Issuer DN:", "Expires:" }, caContents));
+		            stringBuilder.append(formatTable(1, new String[] { "Name:", "CA ID:", "External", "Subject DN:", "Issuer DN:", "Expires:" }, caContents));
 		            stringBuilder.append("\n");
 					log.info(stringBuilder.toString());
 					

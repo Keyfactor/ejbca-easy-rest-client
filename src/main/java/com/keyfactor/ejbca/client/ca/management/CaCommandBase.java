@@ -20,8 +20,15 @@ import com.keyfactor.ejbca.client.ErceCommandBase;
 
 public abstract class CaCommandBase extends ErceCommandBase {
 
+	private final String MAIN_COMMAND = "ca";
+	
 	@Override
 	public String getMainCommand() {
-		return "ca";
+		return MAIN_COMMAND;
+	}
+	
+	@Override
+	public String[] getCommandPath() {
+		return new String[] { MAIN_COMMAND };
 	}
 }

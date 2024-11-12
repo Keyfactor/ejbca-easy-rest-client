@@ -75,7 +75,7 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 
 	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
 			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
-	private static final Set<String> EC_CURVES = AlgorithmTools.getNamedEcCurvesMap(true).keySet();
+	private static final Set<String> EC_CURVES = AlgorithmTools.getNamedEcCurvesMap().keySet();
 
 	private PublicKey publicKey;
 	private PrivateKey privateKey;
