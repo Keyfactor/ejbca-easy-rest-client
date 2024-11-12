@@ -76,17 +76,17 @@ public class EnrollWithKeypairCommand extends EnrollCommandBase {
 
 	private PrivateKey readPrivateKey(final String filename) throws IOException {
 		try (FileReader keyReader = new FileReader(new File(filename))) {
-
-			PEMParser pemParser = new PEMParser(keyReader);
-			Object pemObject = pemParser.readObject();
-			PrivateKeyInfo privateKeyInfo;
-			if (pemObject instanceof PEMKeyPair) {
-				privateKeyInfo = ((PEMKeyPair) pemObject).getPrivateKeyInfo();
-			} else {
-				privateKeyInfo = PrivateKeyInfo.getInstance(pemParser.readObject());
+			try (PEMParser pemParser = new PEMParser(keyReader)) {
+				Object pemObject = pemParser.readObject();
+				PrivateKeyInfo privateKeyInfo;
+				if (pemObject instanceof PEMKeyPair) {
+					privateKeyInfo = ((PEMKeyPair) pemObject).getPrivateKeyInfo();
+				} else {
+					privateKeyInfo = PrivateKeyInfo.getInstance(pemParser.readObject());
+				}
+				JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
+				return converter.getPrivateKey(privateKeyInfo);
 			}
-			JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-			return converter.getPrivateKey(privateKeyInfo);
 		}
 	}
 
