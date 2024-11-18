@@ -87,7 +87,7 @@
 		<dependency>
 			<groupId>org.jboss.resteasy</groupId>
 			<artifactId>resteasy-client</artifactId>
-			<version>6.2.10.Final</version>
+			<version>6.2.11.Final</version>
 		</dependency>
 
 		<!-- https://mvnrepository.com/artifact/jakarta.ws.rs/jakarta.ws.rs-api -->
