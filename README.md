@@ -29,8 +29,16 @@ java -jar target/erce-x.y.x-SNAPSHOT.jar --help
 An example command can looks like:
 
 ```
-java -jar target/erce-0.0.9-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbca/p12/superadmin.p12 --authkeystorepass ****  --endentityprofile "Server" --certificateprofile "Server" --ca ServerCA --subjectaltname "dnsName=test-erces-01.test"  --hostname localhost --destination ./certs --subjectdn "C=SE,O=Keyfactor Community,CN=test-erces-01.test" --username test-erces-01.test -p --keyalg EC --keyspec P-256 --verbose
+java -jar target/erce-0.2.0-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbca/p12/superadmin.p12 --authkeystorepass ****  --endentityprofile "Server" --certificateprofile "Server" --ca ServerCA --subjectaltname "dnsName=test-erces-01.test"  --hostname localhost --destination ./certs --subjectdn "C=SE,O=Keyfactor Community,CN=test-erces-01.test" --username test-erces-01.test -p --keyalg EC --keyspec P-256 --verbose
 ```
+
+## Supported Endpoints
+
+- v1/ca
+  - v1/ca
+  - v1/ca/{subject_dn}/certificate/download
+- v1/certificate
+  - v1/certificate/pkcs10enroll 
 
 ## Community Support
 In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. 
