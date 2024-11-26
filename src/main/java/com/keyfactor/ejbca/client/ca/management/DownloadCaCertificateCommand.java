@@ -83,7 +83,6 @@ public class DownloadCaCertificateCommand extends CaCommandBase {
 			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
 					| KeyStoreException e) {
 				log.error("Could not perform request: " + e.getMessage());
-				log.error("foo", e);
 				return CommandResult.FUNCTIONAL_FAILURE;
 			}
 		} catch (IOException e) {
