@@ -2,7 +2,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.keyfactor</groupId>
 	<artifactId>erce</artifactId>
-	<version>0.2.0-SNAPSHOT</version>
+	<version>0.3.0-SNAPSHOT</version>
 	<name>Easy REST Client for EJBCA</name>
 	<description>Easy REST Client for EJBCA</description>
 
