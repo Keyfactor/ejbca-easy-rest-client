@@ -107,8 +107,6 @@
 			<groupId>com.keyfactor</groupId>
 			<artifactId>servicemanifestbuilder</artifactId>
 			<version>1.0.2</version>
-			<scope>system</scope>		
-			<systemPath>${basedir}/lib/com/keyfactor/servicemanifestbuilder/1.0.2/servicemanifestbuilder-1.0.2.jar</systemPath>
 		</dependency>
 		
 		<!-- Keyfactor Common's X509 Util'-->
