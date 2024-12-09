@@ -141,10 +141,7 @@ public class GetLatestCrlCommand extends CaCommandBase {
 					| KeyStoreException | ParseException e) {
 				log.error("Could not perform request: " + e.getMessage());
 				return CommandResult.FUNCTIONAL_FAILURE;
-			} /*catch (CRLException e) {
-				log.error("Could not parse CRL: " + e.getMessage());
-				return CommandResult.FUNCTIONAL_FAILURE;
-			}*/
+			} 
 		} catch (IOException e) {
 			throw new IllegalStateException("Unknown IOException was caught.", e);
 		}
