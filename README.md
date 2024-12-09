@@ -38,11 +38,13 @@ java -jar target/erce-0.2.0-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbc
   - /v1/ca_management/{ca_name}/deactivate
   - /v1/ca_management/{ca_name}/activate
 - v1/ca
-  - v1/ca
   - v1/ca/{subject_dn}/certificate/download
   - v1/ca/{issuer_dn}/getLatestCrl
 - v1/certificate
-  - v1/certificate/pkcs10enroll 
+  - v1/certificate/pkcs10enroll
+  - v1/certificate/{issuer_dn}/{certificate_serial_number}/revoke
+- v2/certificate
+  - v2/certificate/status
 
 ## Community Support
 In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. 
