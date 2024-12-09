@@ -34,6 +34,9 @@ java -jar target/erce-0.2.0-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbc
 
 ## Supported Endpoints
 
+- v1/ca_management
+  - /v1/ca_management/{ca_name}/deactivate
+  - /v1/ca_management/{ca_name}/activate
 - v1/ca
   - v1/ca
   - v1/ca/{subject_dn}/certificate/download
