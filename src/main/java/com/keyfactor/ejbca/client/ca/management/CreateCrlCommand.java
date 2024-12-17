@@ -23,7 +23,7 @@ import java.security.UnrecoverableKeyException;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPut;
+import org.apache.http.client.methods.HttpPost;
 import org.apache.log4j.Logger;
 import org.ejbca.ui.cli.infrastructure.command.CommandResult;
 import org.ejbca.ui.cli.infrastructure.parameter.Parameter;
@@ -31,30 +31,39 @@ import org.ejbca.ui.cli.infrastructure.parameter.ParameterContainer;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.MandatoryMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.ParameterMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
-public class DeactivateCaCommand extends CaCommandBase {
+public class CreateCrlCommand extends CaCommandBase {
 
-	private static final String COMMAND_URL_PREFIX = "/ejbca/ejbca-rest-api/v1/ca_management/";
-	private static final String COMMAND_URL_POSTFIX = "/activate";
+	private static final String COMMAND_URL_PREFIX = "/ejbca/ejbca-rest-api/v1/ca/";
+	private static final String COMMAND_URL_POSTFIX = "/createcrl";
 
-	private static final Logger log = Logger.getLogger(DeactivateCaCommand.class);
+	private static final Logger log = Logger.getLogger(CreateCrlCommand.class);
 
-	private static final String CA_NAME = "--name";
+	private static final String ISSUER_DN_ARG = "--issuerdn";
+	private static final String DELTA_ARG = "--delta";
 
 	{
-		registerParameter(new Parameter(CA_NAME, "Name", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Name of the CA to activate."));
+		registerParameter(new Parameter(ISSUER_DN_ARG, "Issuer Dn", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "The Subject DN of the sought CA."));
+		registerParameter(new Parameter(DELTA_ARG, "", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.FLAG, "Set this flag to create a Delta CRL"));
 	}
 
 	@Override
 	protected CommandResult execute(ParameterContainer parameters) {
-		// Make sure DN is normalized
-		final String caName = parameters.get(CA_NAME);
+		final String subjectDn = parameters.get(ISSUER_DN_ARG);
 		String restUrl = new StringBuilder().append("https://").append(getHostname())
-				.append(COMMAND_URL_PREFIX + URLEncoder.encode(caName, StandardCharsets.UTF_8) + COMMAND_URL_POSTFIX)
+				.append(COMMAND_URL_PREFIX + URLEncoder.encode(subjectDn, StandardCharsets.UTF_8) + COMMAND_URL_POSTFIX)
 				.toString();
-		final HttpPut request = new HttpPut(restUrl);
+		final boolean delta = parameters.containsKey(DELTA_ARG);
+		restUrl += "?deltacrl=" + delta;
+
 		try {
+
+			final HttpPost request = new HttpPost(restUrl);
 			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
@@ -64,31 +73,38 @@ public class DeactivateCaCommand extends CaCommandBase {
 					break;
 				case 200:
 				case 201:
-					log.info("CA with name '" + caName + "' was activated.");
+					final JSONParser jsonParser = new JSONParser();
+					final JSONObject actualJsonObject = (JSONObject) jsonParser.parse(responseString);				
+					final Boolean success = (Boolean) actualJsonObject.get("all_success");
+					if (success) {
+						final String issuerDn = (String) actualJsonObject.get("issuer_dn");
+						final Long latestCrlVersion = (Long) actualJsonObject.get("latest_crl_version");
+						final Long latestDeltaCrlVersion = (Long) actualJsonObject.get("latest_delta_crl_version");
+						log.info("Updated CRL for CA with Subject DN '" + issuerDn + "'");
+						log.info("Latest CRL Version: " + latestCrlVersion);
+						if (latestDeltaCrlVersion > 0) {
+							log.info("Latest Delta CRL version: " + latestDeltaCrlVersion);
+						}
+					} else {
+						log.warn("CRL could not be generated. See logs for more information.");
+						return CommandResult.FUNCTIONAL_FAILURE;
+					}
 					break;
 				default:
 					log.error("Return code was: " + response.getStatusLine().getStatusCode() + ": " + responseString);
 					break;
 				}
-			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
-					| KeyStoreException e) {
+			} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException
+					| ParseException e) {
 				log.error("Could not perform request: " + e.getMessage());
 				return CommandResult.FUNCTIONAL_FAILURE;
 			}
+
 		} catch (IOException e) {
 			throw new IllegalStateException("Unknown IOException was caught.", e);
 		}
+
 		return CommandResult.SUCCESS;
-	}
-
-	@Override
-	public String getMainCommand() {
-		return "activate";
-	}
-
-	@Override
-	public String getCommandDescription() {
-		return "Activate a CA";
 	}
 
 	@Override
@@ -97,8 +113,18 @@ public class DeactivateCaCommand extends CaCommandBase {
 	}
 
 	@Override
+	public String getCommandDescription() {
+		return "Create a CRL for a given CA.";
+	}
+
+	@Override
 	protected Logger getLogger() {
 		return log;
+	}
+
+	@Override
+	public String getMainCommand() {
+		return "createcrl";
 	}
 
 }
