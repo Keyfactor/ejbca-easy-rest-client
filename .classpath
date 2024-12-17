@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry excluding="build/|gradle/|gradle/wrapper/|lib/com/keyfactor/|lib/com/keyfactor/servicemanifestbuilder/|lib/com/|lib/" kind="src" path=""/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
