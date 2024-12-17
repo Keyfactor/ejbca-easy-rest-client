@@ -14,22 +14,22 @@ Erce is a fully FOSS REST Client for EJBCA Community Edition. Its purpose is to 
 
 ## Get started 
 
-Erce is a fully self-contained Maven project. To build:
+Erce is a fully self-contained Gradle project. To build:
 
 1. Check out a local branch 
-2. Build and package using Maven (-llr is for newer versions of maven to recognize the local repository in the lib directory):
+2. Build and package using Gradle
 ```
-mvn -llr clean package
+./gradlew build
 ```
 3. Run the resulting .jar file with the --help flag to see the available commands. 
 
 ```
-java -jar target/erce-x.y.x-SNAPSHOT.jar --help
+java -jar build/erce-x.y.x.jar --help
 ```
 An example command can looks like:
 
 ```
-java -jar target/erce-0.2.0-SNAPSHOT.jar enroll genkeys --authkeystore /opt/ejbca/p12/superadmin.p12 --authkeystorepass ****  --endentityprofile "Server" --certificateprofile "Server" --ca ServerCA --subjectaltname "dnsName=test-erces-01.test"  --hostname localhost --destination ./certs --subjectdn "C=SE,O=Keyfactor Community,CN=test-erces-01.test" --username test-erces-01.test -p --keyalg EC --keyspec P-256 --verbose
+java -jar build/erce-1.0.0.jar enroll genkeys --authkeystore /opt/ejbca/p12/superadmin.p12 --authkeystorepass ****  --endentityprofile "Server" --certificateprofile "Server" --ca ServerCA --subjectaltname "dnsName=test-erces-01.test"  --hostname localhost --destination ./certs --subjectdn "C=SE,O=Keyfactor Community,CN=test-erces-01.test" --username test-erces-01.test -p --keyalg EC --keyspec P-256 --verbose
 ```
 
 ## Supported Endpoints
