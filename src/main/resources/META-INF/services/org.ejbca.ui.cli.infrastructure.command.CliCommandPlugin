@@ -1,4 +1,5 @@
 com.keyfactor.ejbca.client.ca.management.ActivateCaCommand
+com.keyfactor.ejbca.client.ca.management.CreateCrlCommand
 com.keyfactor.ejbca.client.ca.management.DeactivateCaCommand
 com.keyfactor.ejbca.client.ca.management.DownloadCaCertificateCommand
 com.keyfactor.ejbca.client.ca.management.GetLatestCrlCommand

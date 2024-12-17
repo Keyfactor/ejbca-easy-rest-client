@@ -39,6 +39,7 @@ java -jar build/erce-1.0.0.jar enroll genkeys --authkeystore /opt/ejbca/p12/supe
 - v1/ca
   - v1/ca/{subject_dn}/certificate/download
   - v1/ca/{issuer_dn}/getLatestCrl
+  - /v1/ca/{issuer_dn}/createcrl
 - v1/certificate
   - v1/certificate/pkcs10enroll
   - v1/certificate/{issuer_dn}/{certificate_serial_number}/revoke

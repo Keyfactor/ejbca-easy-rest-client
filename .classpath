@@ -1,5 +1,76 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry excluding="build/|gradle/|gradle/wrapper/|lib/com/keyfactor/|lib/com/keyfactor/servicemanifestbuilder/|lib/com/|lib/" kind="src" path=""/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17">
+		<attributes>
+			<attribute name="module" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="src/main/java"/>
+	<classpathentry kind="src" path="src/test/java"/>
+	<classpathentry kind="lib" path="build/lib/angus-activation-2.0.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-3.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-9.7.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-analysis-3.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-commons-3.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-commons-9.7.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-tree-3.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-tree-9.7.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/asm-util-3.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/asyncutil-0.1.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcpkix-jdk18on-1.79.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcprov-jdk18on-1.79.jar"/>
+	<classpathentry kind="lib" path="build/lib/bctls-jdk18on-1.79-20241009.092109-3.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcutil-jdk18on-1.79.jar"/>
+	<classpathentry kind="lib" path="build/lib/checker-qual-3.12.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-codec-1.15.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-configuration2-2.9.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-exec-1.4.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-io-2.18.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-lang-2.6.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-lang3-3.17.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-logging-1.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/commons-text-1.10.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/error_prone_annotations-2.11.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/exec-maven-plugin-3.5.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/failureaccess-1.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/guava-31.1-jre.jar"/>
+	<classpathentry kind="lib" path="build/lib/hamcrest-core-1.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/httpclient-4.5.14.jar"/>
+	<classpathentry kind="lib" path="build/lib/httpcore-4.4.16.jar"/>
+	<classpathentry kind="lib" path="build/lib/j2objc-annotations-1.3.jar"/>
+	<classpathentry kind="lib" path="build/lib/jacknji11-1.2.10.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.activation-api-2.1.3.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.annotation-api-2.1.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.validation-api-3.0.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.ws.rs-api-4.0.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.xml.bind-api-4.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.xml.soap-api-3.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jakarta.xml.ws-api-4.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jandex-2.4.5.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/jboss-logging-3.5.3.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/jffi-1.0.11.jar"/>
+	<classpathentry kind="lib" path="build/lib/jffi-1.0.11-native.jar"/>
+	<classpathentry kind="lib" path="build/lib/jna-5.6.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/jnr-ffi-0.6.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/jnr-x86asm-1.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/json-simple-1.1.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jsr305-3.0.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/junit-4.10.jar"/>
+	<classpathentry kind="lib" path="build/lib/keyfactor-commons-cli-2.0.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar"/>
+	<classpathentry kind="lib" path="build/lib/log4j-1.2-api-2.24.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/log4j-api-2.24.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/log4j-core-2.24.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/maven-resolver-api-1.4.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/maven-resolver-util-1.4.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/plexus-utils-4.0.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/plexus-xml-3.0.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/reactive-streams-1.0.4.jar"/>
+	<classpathentry kind="lib" path="build/lib/resteasy-client-6.2.11.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/resteasy-client-api-6.2.11.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/resteasy-core-6.2.11.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/resteasy-core-spi-6.2.11.Final.jar"/>
+	<classpathentry kind="lib" path="build/lib/service-manifest-builder-1.0.2.jar"/>
+	<classpathentry kind="lib" path="build/lib/x509-common-util-4.1.4.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

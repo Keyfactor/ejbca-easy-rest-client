@@ -63,7 +63,7 @@ tasks.jar {
 }
 
 group = "com.keyfactor"
-version = "1.0.0"
+version = "1.1.0"
 description = "Easy REST Client for EJBCA"
 java.sourceCompatibility = JavaVersion.VERSION_17
 
