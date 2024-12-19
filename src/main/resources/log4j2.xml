@@ -18,7 +18,7 @@
         <Logger name="org.apache.http" level="info" additivity="false">
             <AppenderRef ref="ConsoleAppender"/>
         </Logger>
-        <Logger name="com.keyfactor" level="debug" additivity="false">
+        <Logger name="com.keyfactor" level="info" additivity="false">
             <AppenderRef ref="ConsoleAppender"/>
         </Logger>
     </Loggers>
