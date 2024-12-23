@@ -201,7 +201,7 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 			final HttpPost request = new HttpPost(restUrl);
 			request.setEntity(new StringEntity(payload));
 			// connect to EJBCA and send the CSR and get an issued certificate back
-			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+			try (CloseableHttpResponse response = performJsonRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 

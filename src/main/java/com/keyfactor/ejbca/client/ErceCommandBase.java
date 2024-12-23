@@ -26,6 +26,7 @@ import java.security.cert.CertificateException;
 
 import javax.net.ssl.SSLContext;
 
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.conn.ssl.TrustAllStrategy;
@@ -189,10 +190,21 @@ public abstract class ErceCommandBase extends CommandBase {
 		return hostname;
 	}
 
-	protected CloseableHttpResponse performRESTAPIRequest(final SSLContext sslContext, HttpRequestBase request)
+	protected CloseableHttpResponse performJsonRequest(final SSLContext sslContext, HttpRequestBase request)
 			throws IOException, KeyManagementException, UnrecoverableKeyException, NoSuchAlgorithmException,
 			KeyStoreException {
 		request.setHeader("Content-Type", "application/json");
+		return performResttRequest(sslContext, request);
+	}
+	
+	protected CloseableHttpResponse performMultipartRequest(final SSLContext sslContext, HttpRequestBase request)
+			throws IOException, KeyManagementException, UnrecoverableKeyException, NoSuchAlgorithmException,
+			KeyStoreException {
+		request.setHeader("Content-Type", "multipart/form-data");
+		return performResttRequest(sslContext, request);
+	}
+	
+	private CloseableHttpResponse performResttRequest(final SSLContext sslContext, final HttpRequestBase request) throws ClientProtocolException, IOException {
 		final HttpClientBuilder builder = HttpClientBuilder.create();
 		// sslContext should be pre-created because it takes something like 25ms to
 		// create, and it's the same for every call (and thread for that matter)

@@ -3,6 +3,7 @@ com.keyfactor.ejbca.client.ca.management.CreateCrlCommand
 com.keyfactor.ejbca.client.ca.management.DeactivateCaCommand
 com.keyfactor.ejbca.client.ca.management.DownloadCaCertificateCommand
 com.keyfactor.ejbca.client.ca.management.GetLatestCrlCommand
+com.keyfactor.ejbca.client.ca.management.ImportCrlCommand
 com.keyfactor.ejbca.client.ca.management.ListCaCommand
 com.keyfactor.ejbca.client.enroll.EnrollGenKeysCommand
 com.keyfactor.ejbca.client.enroll.EnrollWithKeypairCommand

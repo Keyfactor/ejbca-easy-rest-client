@@ -4,7 +4,6 @@ plugins {
 }
 
 repositories {
-    mavenLocal()
     maven {
         url = uri("file:////Users/mikek/eclipse-workspace/Easy-Rest-Client-EJBCA/lib")
     }
@@ -12,6 +11,12 @@ repositories {
     maven {
         url = uri("https://repo.maven.apache.org/maven2/")
     }
+    
+    
+    flatDir { 
+        dirs(rootProject.projectDir.resolve("lib")) 
+    }
+
 }
 
 dependencies {
@@ -21,6 +26,7 @@ dependencies {
     api(libs.org.bouncycastle.bcpkix.jdk18on)
     api(libs.commons.io.commons.io)
     api(libs.org.apache.httpcomponents.httpclient)
+    api("org.apache.httpcomponents:httpmime:4.5.14")
     api(libs.org.apache.logging.log4j.log4j.core)
     api(libs.org.apache.logging.log4j.log4j.v1.v2.api)
     api(libs.org.apache.commons.commons.lang3)
@@ -63,7 +69,7 @@ tasks.jar {
 }
 
 group = "com.keyfactor"
-version = "1.2.0"
+version = "1.3.0"
 description = "Easy REST Client for EJBCA"
 java.sourceCompatibility = JavaVersion.VERSION_17
 

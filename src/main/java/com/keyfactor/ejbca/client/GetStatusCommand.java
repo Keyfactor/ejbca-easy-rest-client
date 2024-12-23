@@ -52,7 +52,7 @@ public class GetStatusCommand extends ErceCommandBase {
 			final StringWriter out = new StringWriter();
 			param.writeJSONString(out);
 			final HttpGet request = new HttpGet(restUrl);
-			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+			try (CloseableHttpResponse response = performJsonRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 				switch (response.getStatusLine().getStatusCode()) {

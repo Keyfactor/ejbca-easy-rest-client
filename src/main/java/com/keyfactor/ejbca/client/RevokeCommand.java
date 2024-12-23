@@ -144,7 +144,7 @@ public class RevokeCommand extends ErceCommandBase {
 			payload = out.toString();
 			final HttpPut request = new HttpPut(restUrl);
 			request.setEntity(new StringEntity(payload));
-			try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+			try (CloseableHttpResponse response = performJsonRequest(getSslContext(), request)) {
 				final InputStream entityContent = response.getEntity().getContent();
 				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 				switch (response.getStatusLine().getStatusCode()) {
