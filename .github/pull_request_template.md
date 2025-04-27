@@ -13,6 +13,4 @@
 - [ ] I have kept the patch limited to only change the parts related to the patch
 - [ ] This change requires a documentation update
 
-See also [Contributing Guidelines](../../CONTRIBUTING.md).
-
-TESTING
+See also [Contributing Guidelines](../CONTRIBUTING.md).
