@@ -19,6 +19,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyStore;
@@ -62,6 +63,7 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 
 import com.keyfactor.util.crypto.algorithm.AlgorithmConstants;
 import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
+import com.keyfactor.util.keys.KeyStoreCipher;
 import com.keyfactor.util.keys.KeyTools;
 
 /**
@@ -83,8 +85,14 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 	{
 		registerParameter(new Parameter(KEYALG_ARG, "cipher", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT,
-				"Cipher must be one of [ " + AlgorithmConstants.KEYALGORITHM_RSA + ", " + AlgorithmConstants.KEYALGORITHM_EC + ", "
-						+ AlgorithmConstants.KEYALGORITHM_ED25519 + ", " + AlgorithmConstants.KEYALGORITHM_ED448 + "]"));
+				"Cipher must be one of [ " 	+ AlgorithmConstants.KEYALGORITHM_RSA + ", " 
+											+ AlgorithmConstants.KEYALGORITHM_EC + ", "
+											+ AlgorithmConstants.KEYALGORITHM_ED25519 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_ED448 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA44 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA65 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA87 + ", "
+											+ "]"));
 		StringBuilder ecCurvesFormatted = new StringBuilder();
 		ecCurvesFormatted.append("[");
 		for (String curveName : EC_CURVES) {
@@ -95,7 +103,7 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 		registerParameter(new Parameter(KEYSPEC_ARG, "Key Specification", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT,
 				"Key Specification.\n If cipher was RSA, must be one of [ 1024, 1536, 2048, 3072, 4096, 6144, 8192 ].\n If cipher was EC, must be one of "
-						+ ecCurvesFormatted + ". Should be omitted for Ed25519 and Ed448."));
+						+ ecCurvesFormatted + ". Should be omitted for Ed25519 and Ed448, or ML_DSA44/65/87."));
 	}
 
 	private static final Logger log = Logger.getLogger(EnrollGenKeysCommand.class);
@@ -128,6 +136,16 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 		case "ED448":
 			keyAlg = AlgorithmConstants.KEYALGORITHM_ED448;
 			break;
+		case AlgorithmConstants.KEYALGORITHM_MLDSA44:
+			keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA44;
+			break;
+		case AlgorithmConstants.KEYALGORITHM_MLDSA65:
+			keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA65;
+			break;
+		case AlgorithmConstants.KEYALGORITHM_MLDSA87:
+			keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA87;
+			break;
+			
 		default:
 			log.error("Key Algorithm " + keyAlg + " was unknown.");
 			return CommandResult.CLI_FAILURE;
@@ -175,98 +193,10 @@ public class EnrollGenKeysCommand extends EnrollCommandBase {
 	private static KeyStore createP12(final String alias, final PrivateKey privateKey,
 			final X509Certificate certificate, final String keystorePassword)
 			throws CertificateException, NoSuchAlgorithmException, InvalidKeySpecException {
-		KeyStore store;
-		try {
-			store = KeyStore.getInstance("PKCS12-3DES-3DES", BouncyCastleProvider.PROVIDER_NAME);
-			store.load(null, keystorePassword.toCharArray());
-		} catch (KeyStoreException | NoSuchProviderException | IOException e) {
-			throw new IllegalStateException("Could not create keystore.", e);
-		}
-
-		// Certificate chain
-		if (certificate == null) {
-			throw new IllegalArgumentException("Parameter certificate cannot be null.");
-		}
-		final Certificate[] chain = new Certificate[1];
-
-		CertificateFactory certificateFactory;
-		try {
-			certificateFactory = CertificateFactory.getInstance("X.509", BouncyCastleProvider.PROVIDER_NAME);
-		} catch (CertificateException | NoSuchProviderException e) {
-			throw new CertificateParsingException("Could not create certificate factory", e);
-		}
-		chain[0] = certificateFactory.generateCertificate(new ByteArrayInputStream(certificate.getEncoded()));
-		// Set attributes on user-certificate
-		try {
-			final PKCS12BagAttributeCarrier certBagAttr = (PKCS12BagAttributeCarrier) chain[0];
-			certBagAttr.setBagAttribute(PKCSObjectIdentifiers.pkcs_9_at_friendlyName, new DERBMPString(alias));
-			// in this case we just set the local key id to that of the public key
-			certBagAttr.setBagAttribute(PKCSObjectIdentifiers.pkcs_9_at_localKeyId,
-					createSubjectKeyId(chain[0].getPublicKey()));
-		} catch (ClassCastException e) {
-			log.error("ClassCastException setting BagAttributes, can not set friendly name: ", e);
-		}
-		try {
-			// "Clean" private key, i.e. remove any old attributes,
-			// As well as convert any EdDSA key to v1 format that is understood by openssl
-			// v1.1.1 and earlier
-			// EdDSA (Ed25519 or Ed448) keys have a v1 format, with only the private key,
-			// and a v2 format that includes both the private and public
-			final PrivateKeyInfo pkInfo = PrivateKeyInfo.getInstance(privateKey.getEncoded());
-			final PrivateKeyInfo v1PkInfo = new PrivateKeyInfo(pkInfo.getPrivateKeyAlgorithm(),
-					pkInfo.parsePrivateKey());
-			final KeyFactory keyfact = KeyFactory.getInstance(privateKey.getAlgorithm(),
-					BouncyCastleProvider.PROVIDER_NAME);
-			final PrivateKey pk = keyfact.generatePrivate(new PKCS8EncodedKeySpec(v1PkInfo.getEncoded()));
-			// The PKCS#12 bag attributes PKCSObjectIdentifiers.pkcs_9_at_friendlyName and
-			// PKCSObjectIdentifiers.pkcs_9_at_localKeyId
-			// are set automatically by BC when setting the key entry
-			store.setKeyEntry(alias, pk, null, chain);
-
-			return store;
-		} catch (NoSuchProviderException e) {
-			throw new IllegalStateException("BouncyCastle provider was not found.", e);
-		} catch (KeyStoreException e) {
-			throw new IllegalStateException("PKCS12 keystore type could not be instanced.", e);
-		} catch (IOException e) {
-			throw new IllegalStateException("IOException should not be thrown when instancing an empty keystore.", e);
-		}
-	}
-
-	/**
-	 * create the subject key identifier.
-	 * 
-	 * @param pubKey the public key
-	 * 
-	 * @return SubjectKeyIdentifer asn.1 structure
-	 */
-	private static SubjectKeyIdentifier createSubjectKeyId(final PublicKey pubKey) {
-		try {
-			final ASN1Sequence keyASN1Sequence;
-			try (final ASN1InputStream pubKeyAsn1InputStream = new ASN1InputStream(
-					new ByteArrayInputStream(pubKey.getEncoded()));) {
-				final Object keyObject = pubKeyAsn1InputStream.readObject();
-				if (keyObject instanceof ASN1Sequence) {
-					keyASN1Sequence = (ASN1Sequence) keyObject;
-				} else {
-					// PublicKey key that doesn't encode to a ASN1Sequence. Fix this by creating a
-					// BC object instead.
-					final PublicKey altKey = (PublicKey) KeyFactory
-							.getInstance(pubKey.getAlgorithm(), BouncyCastleProvider.PROVIDER_NAME)
-							.translateKey(pubKey);
-					try (final ASN1InputStream altKeyAsn1InputStream = new ASN1InputStream(
-							new ByteArrayInputStream(altKey.getEncoded()))) {
-						keyASN1Sequence = (ASN1Sequence) altKeyAsn1InputStream.readObject();
-					}
-				}
-				X509ExtensionUtils x509ExtensionUtils = new BcX509ExtensionUtils();
-				return x509ExtensionUtils.createSubjectKeyIdentifier(SubjectPublicKeyInfo.getInstance(keyASN1Sequence));
-			}
-		} catch (Exception e) {
-			final RuntimeException e2 = new RuntimeException("error creating key"); // NOPMD
-			e2.initCause(e);
-			throw e2;
-		}
+		
+		KeyStore store = KeyTools.createP12("Foo", privateKey, certificate, (X509Certificate) null, KeyStoreCipher.PKCS12_AES256_AES128);
+		return store;
+		
 	}
 
 	@Override
