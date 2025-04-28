@@ -278,16 +278,21 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 			GeneralNames san = DnComponents.getGeneralNamesFromAltName(subjectAltName);
 			extensionsGenerator.addExtension(Extension.subjectAlternativeName, false, san);
 		}
-		final Extensions extensions = extensionsGenerator.generate();
-		// Add the extension(s) to the PKCS#10 request as a pkcs_9_at_extensionRequest
-		ASN1EncodableVector extensionattr = new ASN1EncodableVector();
-		extensionattr.add(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
-		extensionattr.add(new DERSet(extensions));
-		// Complete the Attribute section of the request, the set (Attributes) contains
-		// one sequence (Attribute)
-		ASN1EncodableVector v = new ASN1EncodableVector();
-		v.add(new DERSequence(extensionattr));
-		DERSet attributes = new DERSet(v);
+		DERSet attributes;
+		if (!extensionsGenerator.isEmpty()) {
+			final Extensions extensions = extensionsGenerator.generate();
+			// Add the extension(s) to the PKCS#10 request as a pkcs_9_at_extensionRequest
+			ASN1EncodableVector extensionattr = new ASN1EncodableVector();
+			extensionattr.add(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+			extensionattr.add(new DERSet(extensions));
+			// Complete the Attribute section of the request, the set (Attributes) contains one sequence (Attribute)
+			ASN1EncodableVector v = new ASN1EncodableVector();
+			v.add(new DERSequence(extensionattr));
+			attributes = new DERSet(v);
+		} else {
+			attributes = new DERSet();
+		}
+		
 		List<String> sigAlgs = AlgorithmTools.getSignatureAlgorithms(publicKey);
 		if (sigAlgs.size() == 0) {
 			log.error("Unable to generate CSR, no signature algorithms available for public key of type: " + publicKey.getClass().getName());
@@ -300,7 +305,6 @@ public abstract class EnrollCommandBase extends ErceCommandBase {
 			sigAlg = sigAlgs.get(0);
 		}
 		try {
-		log.error("SigAlg: "+sigAlg);
 			return CertTools.genPKCS10CertificationRequest(sigAlg, userDN, publicKey, attributes, privateKey, BouncyCastleProvider.PROVIDER_NAME);
 		} catch (OperatorCreationException e) {
 			log.error("Unable to generate CSR: " + e.getLocalizedMessage());
