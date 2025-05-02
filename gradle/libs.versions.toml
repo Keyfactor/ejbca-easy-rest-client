@@ -18,6 +18,7 @@ org-bouncycastle-bcprov-jdk18on = "1.80"
 org-bouncycastle-bcutil-jdk18on = "1.80"
 org-codehaus-mojo-exec-maven-plugin = "3.5.0"
 org-jboss-resteasy-resteasy-client = "6.2.11.Final"
+com-fasterxml-jackson-core-jackson-databind = "2.19.0"
 
 [libraries]
 com-googlecode-json-simple-json-simple = { module = "com.googlecode.json-simple:json-simple", version.ref = "com-googlecode-json-simple-json-simple" }
@@ -36,3 +37,4 @@ org-bouncycastle-bcprov-jdk18on = { module = "org.bouncycastle:bcprov-jdk18on", 
 org-bouncycastle-bcutil-jdk18on = { module = "org.bouncycastle:bcutil-jdk18on", version.ref = "org-bouncycastle-bcutil-jdk18on" }
 org-codehaus-mojo-exec-maven-plugin = { module = "org.codehaus.mojo:exec-maven-plugin", version.ref = "org-codehaus-mojo-exec-maven-plugin" }
 org-jboss-resteasy-resteasy-client = { module = "org.jboss.resteasy:resteasy-client", version.ref = "org-jboss-resteasy-resteasy-client" }
+com-fasterxml-jackson-core = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "com-fasterxml-jackson-core-jackson-databind" }

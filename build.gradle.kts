@@ -30,6 +30,7 @@ dependencies {
     api(libs.jakarta.ws.rs.jakarta.ws.rs.api)
     api(libs.com.keyfactor.keyfactor.commons.cli)
     api(libs.com.keyfactor.x509.common.util)
+    api(libs.com.fasterxml.jackson.core)
 }
 
 tasks.register<Copy>("copyDependencies") {
@@ -63,7 +64,7 @@ tasks.jar {
 }
 
 group = "com.keyfactor"
-version = "1.4.0"
+version = "1.5.0"
 description = "Easy REST Client for EJBCA"
 java.sourceCompatibility = JavaVersion.VERSION_17
 
