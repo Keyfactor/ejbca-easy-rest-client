@@ -1,7 +1,9 @@
 # Erce – The Easy Rest Client for EJBCA 
 [![Discuss](https://img.shields.io/badge/discuss-ejbca-ce?style=flat)](https://github.com/Keyfactor/ejbca-ce/discussions) 
 
-Erce is a fully FOSS REST Client for EJBCA Community Edition. Its purpose is to act as a REST-based alternative to the EJBCA CLI and other enrollment protocols such as SCEP and CMP in environments where the UI is not available/optimal, but also to allow for further scripting by branching and extending this implementation. Erce is compatible with EJBCA 7.9.0.1 and later. 
+Erce is a fully FOSS REST Client for EJBCA. Its purpose is to act as a REST-based alternative to the EJBCA CLI and other enrollment protocols such as SCEP and CMP in environments where the UI is not available/optimal, but also to allow for further scripting by branching and extending this implementation. Erce is compatible with EJBCA 7.9.0.1 and later, though the latest released version is recommended for full endpoint support. 
+
+Erce contains support for both CE and EE endpoints, as well as a built in stress test to measure performance and throughput. 
 
 ## Get started 
 
