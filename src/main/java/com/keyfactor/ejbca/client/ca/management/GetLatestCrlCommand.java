@@ -114,7 +114,6 @@ public class GetLatestCrlCommand extends CaCommandBase {
 					final String format = (String) actualJsonObject.get("response_format");
 					final String crlString = (String) actualJsonObject.get("crl");
 					if(format.equals("DER")) {
-						//X509CRL crl = CertTools.getCRLfromByteArray(crlString.getBytes());
 						File crlFile = new File(destination, subjectDn + ".crl");
 						// Write the resulting cert to file
 						try {

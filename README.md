@@ -37,6 +37,7 @@ java -jar build/erce-1.0.0.jar enroll genkeys --authkeystore /opt/ejbca/p12/supe
 - v2/certificate
   - v2/certificate/status
   - v2/certificate/count
+- v2/configdump
  
 ### Additional Commands
 - Stress Test

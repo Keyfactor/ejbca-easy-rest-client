@@ -17,10 +17,9 @@
 	<classpathentry kind="lib" path="build/lib/asm-tree-9.7.1.jar"/>
 	<classpathentry kind="lib" path="build/lib/asm-util-3.2.jar"/>
 	<classpathentry kind="lib" path="build/lib/asyncutil-0.1.0.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcpkix-jdk18on-1.79.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcprov-jdk18on-1.79.jar"/>
-	<classpathentry kind="lib" path="build/lib/bctls-jdk18on-1.79-20241009.092109-3.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcutil-jdk18on-1.79.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcpkix-jdk18on-1.80.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcprov-jdk18on-1.80.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcutil-jdk18on-1.80.jar"/>
 	<classpathentry kind="lib" path="build/lib/checker-qual-3.12.0.jar"/>
 	<classpathentry kind="lib" path="build/lib/commons-codec-1.15.jar"/>
 	<classpathentry kind="lib" path="build/lib/commons-configuration2-2.9.0.jar"/>
@@ -71,6 +70,9 @@
 	<classpathentry kind="lib" path="build/lib/resteasy-core-6.2.11.Final.jar"/>
 	<classpathentry kind="lib" path="build/lib/resteasy-core-spi-6.2.11.Final.jar"/>
 	<classpathentry kind="lib" path="build/lib/service-manifest-builder-1.0.2.jar"/>
-	<classpathentry kind="lib" path="build/lib/x509-common-util-4.1.4.jar"/>
+	<classpathentry kind="lib" path="build/lib/x509-common-util-5.3.1.jar"/>
+	<classpathentry kind="lib" path="build/lib/jackson-annotations-2.19.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/jackson-core-2.19.0.jar"/>
+	<classpathentry kind="lib" path="build/lib/jackson-databind-2.19.0.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
