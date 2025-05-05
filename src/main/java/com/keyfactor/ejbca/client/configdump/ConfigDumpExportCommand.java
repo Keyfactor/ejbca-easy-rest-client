@@ -37,7 +37,6 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.keyfactor.ejbca.client.enroll.EnrollGenKeysCommand;
 
 /**
  * The basic ConfigDump export command, uses the getJsonConfigdump endpoint
@@ -45,7 +44,7 @@ import com.keyfactor.ejbca.client.enroll.EnrollGenKeysCommand;
 
 public class ConfigDumpExportCommand extends ConfigDumpCommandBase {
 
-	private static final Logger log = Logger.getLogger(EnrollGenKeysCommand.class);
+	private static final Logger log = Logger.getLogger(ConfigDumpExportCommand.class);
 
 	
 	private static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/configdump";
@@ -140,6 +139,7 @@ public class ConfigDumpExportCommand extends ConfigDumpCommandBase {
 				case 201:
 					final JSONParser jsonParser = new JSONParser();
 					final JSONObject returnObject = (JSONObject) jsonParser.parse(responseString);		
+					System.err.println(returnObject.toJSONString());
 					for(Object key : returnObject.keySet()) {
 						writeDumpDirectory((JSONObject) returnObject.get((String) key), destination, (String) key);
 					}
