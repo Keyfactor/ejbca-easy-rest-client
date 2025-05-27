@@ -22,11 +22,10 @@ import java.security.KeyPair;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -156,21 +155,85 @@ public class X509StressTestCommand extends ErceCommandBase {
 		
 		log.info("\nWeapons free. Fire for effect.");
 		
-		final ExecutorService executor = Executors.newFixedThreadPool(numberOfThreads);
-		Set<CompletableFuture<Void>> threads = new HashSet<>();
 		long startTime = System.currentTimeMillis();
-		for (int row = 0; row < numberOfThreads; ++row) {
-			threads.add(CompletableFuture.runAsync(new EnrollmentCall(restUrl, row, requestPerThread)));
+		List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+		for (int threadNumber = 0; threadNumber < numberOfThreads; ++threadNumber) {
+			final int row = threadNumber;
+			futures.add(CompletableFuture.supplyAsync(() -> {
+				
+				List<String> failures = new ArrayList<>();
+				for (int i = 0; i < requestPerThread; ++i) {
+					String payload = payloads[row][i];
+					final HttpPost request = new HttpPost(restUrl);
+					try {
+						request.setEntity(new StringEntity(payload));
+						// connect to EJBCA and send the CSR and get an issued certificate back
+						try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+							final InputStream entityContent = response.getEntity().getContent();
+							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
+							switch (response.getStatusLine().getStatusCode()) {
+							case 404:
+								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + " - Return code was: 404: " + responseString;
+								getLogger().error(msg404);
+								failures.add(msg404);
+								break;
+							case 200:
+							case 201:
+								// Do nothing.
+								break;
+							default:
+								String msgOthers = "Thread ID: " + row + ", Iteration: " + i + " - Return code was: " + response.getStatusLine().getStatusCode() + ": "
+										+ responseString;
+								getLogger().error(msgOthers);
+								failures.add(msgOthers);
+								break;
+							}
+						} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
+								| KeyStoreException e) {
+							getLogger().error("Could not perform request: " + e.getMessage());
+						}
+					} catch (IOException e) {
+						getLogger().error("Could not perform request: " + e.getMessage());
+					}
+				}
+				return failures;
+			}));
+
 		}
-		CompletableFuture.allOf(threads.toArray(CompletableFuture[]::new)).join();    	
+		CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(CompletableFuture<?>[]::new));
+		List<String> results = new ArrayList<>();
+		allFutures.thenRun(() -> {
+			for (CompletableFuture<List<String>> completedFuture : futures) {
+				try {
+					results.addAll(completedFuture.get());
+				} catch (ExecutionException | InterruptedException e) {
+					log.error("Future could not execute.", e);
+				}
+			}
+		});
+		
+		allFutures.join();
 		long endTime = System.currentTimeMillis();
-		executor.shutdown();
 		log.info("Fire mission complete. Weapons hold.\n");
+
+		if(!results.isEmpty()) {
+			log.info("The following threads did not return a certificate:");
+			for(String error : results) {
+				log.info(error);
+			}
+			
+		}
+		
+		long totalCerts = numberOfThreads*requestPerThread;
+		long success = totalCerts-results.size();
 		double executionTime =  (endTime - startTime)/1000;
 		log.info("Total execution time: " + executionTime + " seconds.");
-		double averageTime = executionTime/(requestPerThread * numberOfThreads);
-		log.info("Average issuance time: " + averageTime + " seconds.");
-		log.info("Throughput: " + 1/averageTime + " certificates issued per second.");
+		if(success > 0) {
+			double averageTime = executionTime / success;
+			log.info("Average issuance time: " + averageTime + " seconds.");
+			log.info("Throughput: " + 1 / averageTime + " certificates issued per second.");
+		}
+		log.info((success) + " certificates were successfully issued, with " + results.size() + " failures.");
 		
 
 		return CommandResult.SUCCESS;
@@ -273,53 +336,5 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	}
 
-	//change to Callable, return object with timestamps
-	private class EnrollmentCall implements Runnable {
-
-		private final String url;
-		private final int row;
-		private final int certPerThread;
-
-		public EnrollmentCall(final String url, final int row, final int certPerThread) {
-			this.url = url;
-			this.row = row;
-			this.certPerThread = certPerThread;
-		}
-
-		@Override
-		public void run() {
-			for (int i = 0; i < certPerThread; ++i) {
-				String payload = payloads[row][i];
-				final HttpPost request = new HttpPost(url);
-				try {
-					request.setEntity(new StringEntity(payload));
-					// connect to EJBCA and send the CSR and get an issued certificate back
-					try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
-						final InputStream entityContent = response.getEntity().getContent();
-						String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
-						switch (response.getStatusLine().getStatusCode()) {
-						case 404:
-							getLogger().error("Return code was: 404: " + responseString);
-							break;
-						case 200:
-						case 201:
-							// Do nothing.
-							break;
-						default:
-							getLogger().error("Return code was: " + response.getStatusLine().getStatusCode() + ": "
-									+ responseString);
-							break;
-						}
-					} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
-							| KeyStoreException e) {
-						getLogger().error("Could not perform request: " + e.getMessage());
-					}
-				} catch (IOException e) {
-					getLogger().error("Could not perform request: " + e.getMessage());
-				}
-			}
-		}
-
-	}
 
 }
