@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
@@ -61,7 +62,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	private static final Logger log = Logger.getLogger(X509StressTestCommand.class);
 
-	private static final String STRESS_TEST_PREFIX = "ErceStressTest_";
+	private static final String STRESS_TEST_PREFIX_DEFAULT = "ErceStressTest_";
 	private static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
 
 	private static final String CA_ARG = "--ca";
@@ -70,6 +71,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String THREADS_ARG = "--threads";
 	private static final String CERTS_PER_THREAD_ARG = "--certs";
 	private static final String REUSE_KEY_ARG = "--singlekey";
+	private static final String PREFIX_ARG = "--prefix";
+	private static final String POSTFIX_ARG = "--postfix";
 
 	private String[][] payloads;
 
@@ -86,6 +89,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Number CSRs to generate per thread."));
 		registerParameter(new Parameter(REUSE_KEY_ARG, "", MandatoryMode.OPTIONAL,
 				StandaloneMode.FORBID, ParameterMode.FLAG, "Set this flag to use the same key for all CSRs. Be aware that unique public keys must be disabled on the CA."));
+		registerParameter(new Parameter(PREFIX_ARG, "prefix", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional prefix value for usernames and CNs. Default is '" + STRESS_TEST_PREFIX_DEFAULT + "'"));
+		registerParameter(new Parameter(POSTFIX_ARG, "postfix", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional postfix value for usernames and CNs. Default is blank."));
 
 	}
 
@@ -94,6 +101,18 @@ public class X509StressTestCommand extends ErceCommandBase {
 		final String endEntityProfileName = parameters.get(END_ENTITY_PROFILE_ARG);
 		final String certificateProfileName = parameters.get(CERTIFICATE_PROFILE_ARG);
 		final String caName = parameters.get(CA_ARG);
+		final String prefix;
+		if(parameters.containsKey(PREFIX_ARG)) {
+			prefix = parameters.get(PREFIX_ARG);
+		} else {
+			prefix = STRESS_TEST_PREFIX_DEFAULT;
+		}
+		final String postfix;
+		if(parameters.containsKey(POSTFIX_ARG)) {
+			postfix = parameters.get(POSTFIX_ARG);
+		} else {
+			postfix = "";
+		}
 
 		final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(COMMAND_URL)
 				.toString();
@@ -124,7 +143,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 		
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
 		
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey);
+		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix);
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -166,10 +185,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 		sb.append("For simplicity, the keys generated for each CSR will be set to use Elliptic Curve P256\n\n");
 		sb.append(
 				"To allow for easy cleaning of the database afterwards, all end entities will have their usernames prefixed with "
-						+ STRESS_TEST_PREFIX + "\n");
+						+ STRESS_TEST_PREFIX_DEFAULT + "\n");
 		sb.append("You can then clean the database using the following SQL commands: \n");
-		sb.append("    " + "DELETE FROM CertificateData WHERE username LIKE '" + STRESS_TEST_PREFIX + "%';\n");
-		sb.append("    " + "DELETE FROM UserData WHERE username LIKE '" + STRESS_TEST_PREFIX + "%';\n");
+		sb.append("    " + "DELETE FROM CertificateData WHERE username LIKE '" + STRESS_TEST_PREFIX_DEFAULT + "%';\n");
+		sb.append("    " + "DELETE FROM UserData WHERE username LIKE '" + STRESS_TEST_PREFIX_DEFAULT + "%';\n");
 		sb.append("Note that audit logs should not be cleaned during this process.\n\n");
 		sb.append("DO NOT use this command in a production database.\n");
 		return sb.toString();
@@ -192,7 +211,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	@SuppressWarnings("unchecked")
 	private void generatePayloads(final int numberOfThreads, final int requestPerThread, final String caName,
-			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey) {
+			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix) {
 		log.info("Will submit a total of " + requestPerThread * numberOfThreads + " CSRs, using " + numberOfThreads
 				+ " threads.");
 		log.info("Pre generating CSR payloads...");
@@ -204,7 +223,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 		try {
 			for (int i = 0; i < numberOfThreads; ++i) {
 				for (int j = 0; j < requestPerThread; ++j) {
-					final String endEntityName = STRESS_TEST_PREFIX + "_" + i + "_" + j;
+					final String endEntityName = prefix + "_" + i + "_" + j + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
 					final String subjectDn = "CN=" + endEntityName;					
 					if (keyPair == null || !singleKey) {
 						try {
