@@ -21,9 +21,14 @@ import java.security.KeyManagementException;
 import java.security.KeyPair;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.UnrecoverableKeyException;
+import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -50,6 +55,7 @@ import com.keyfactor.ejbca.client.ErceCommandBase;
 import com.keyfactor.util.CertTools;
 import com.keyfactor.util.certificate.DnComponents;
 import com.keyfactor.util.crypto.algorithm.AlgorithmConstants;
+import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
 import com.keyfactor.util.keys.KeyTools;
 
 /**
@@ -72,6 +78,12 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String REUSE_KEY_ARG = "--singlekey";
 	private static final String PREFIX_ARG = "--prefix";
 	private static final String POSTFIX_ARG = "--postfix";
+	private static final String KEYALG_ARG = "--keyalg";
+	private static final String KEYSPEC_ARG = "--keyspec";
+
+	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
+			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
+	private static final Set<String> EC_CURVES = AlgorithmTools.getNamedEcCurvesMap().keySet();
 
 	private String[][] payloads;
 
@@ -92,6 +104,25 @@ public class X509StressTestCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT, "Optional prefix value for usernames and CNs. Default is '" + STRESS_TEST_PREFIX_DEFAULT + "'"));
 		registerParameter(new Parameter(POSTFIX_ARG, "postfix", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Optional postfix value for usernames and CNs. Default is blank."));
+		registerParameter(new Parameter(KEYALG_ARG, "cipher", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT,
+				"Key algorithm. Must be one of [ " + AlgorithmConstants.KEYALGORITHM_RSA + ", "
+											+ AlgorithmConstants.KEYALGORITHM_EC + ", "
+											+ AlgorithmConstants.KEYALGORITHM_ECDSA + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA44 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA65 + ", "
+											+ AlgorithmConstants.KEYALGORITHM_MLDSA87 + " ]. Default is ECDSA."));
+		StringBuilder ecCurvesFormatted = new StringBuilder();
+		ecCurvesFormatted.append("[");
+		for (String curveName : EC_CURVES) {
+			ecCurvesFormatted.append(" ").append(curveName).append(",");
+		}
+		ecCurvesFormatted.deleteCharAt(ecCurvesFormatted.lastIndexOf(","));
+		ecCurvesFormatted.append(" ]");
+		registerParameter(new Parameter(KEYSPEC_ARG, "Key Specification", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT,
+				"Key Specification.\n If cipher was RSA, must be one of [ 1024, 1536, 2048, 3072, 4096, 6144, 8192 ]. Default is 2048.\n If cipher was EC/ECDSA, must be one of "
+						+ ecCurvesFormatted + ". Default is secp256r1.\n Should be omitted for ML-DSA variants."));
 
 	}
 
@@ -111,6 +142,59 @@ public class X509StressTestCommand extends ErceCommandBase {
 			postfix = parameters.get(POSTFIX_ARG);
 		} else {
 			postfix = "";
+		}
+
+		// Parse and validate key algorithm
+		String keyAlg = parameters.get(KEYALG_ARG);
+		if (keyAlg == null) {
+			keyAlg = AlgorithmConstants.KEYALGORITHM_ECDSA; // Default to ECDSA
+		} else {
+			switch (keyAlg.toUpperCase()) {
+			case "RSA":
+				keyAlg = AlgorithmConstants.KEYALGORITHM_RSA;
+				break;
+			case "EC":
+			case "ECDSA":
+				keyAlg = AlgorithmConstants.KEYALGORITHM_ECDSA;
+				break;
+			case AlgorithmConstants.KEYALGORITHM_MLDSA44:
+				keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA44;
+				break;
+			case AlgorithmConstants.KEYALGORITHM_MLDSA65:
+				keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA65;
+				break;
+			case AlgorithmConstants.KEYALGORITHM_MLDSA87:
+				keyAlg = AlgorithmConstants.KEYALGORITHM_MLDSA87;
+				break;
+			default:
+				log.error("Key Algorithm " + keyAlg + " was unknown.");
+				return CommandResult.CLI_FAILURE;
+			}
+		}
+
+		// Parse and validate key specification
+		String keySpec = parameters.get(KEYSPEC_ARG);
+		if (keySpec == null) {
+			// Set defaults based on algorithm
+			if (AlgorithmConstants.KEYALGORITHM_RSA.equals(keyAlg)) {
+				keySpec = "2048";
+			} else if (AlgorithmConstants.KEYALGORITHM_ECDSA.equals(keyAlg) || AlgorithmConstants.KEYALGORITHM_EC.equals(keyAlg)) {
+				keySpec = "secp256r1";
+			}
+			// ML-DSA variants don't need a keySpec
+		} else {
+			// Validate key specification based on algorithm
+			if (AlgorithmConstants.KEYALGORITHM_RSA.equals(keyAlg)) {
+				if (!RSA_KEY_SIZES.contains(keySpec)) {
+					log.error("Key size " + keySpec + " is invalid for RSA Keys.");
+					return CommandResult.CLI_FAILURE;
+				}
+			} else if (AlgorithmConstants.KEYALGORITHM_ECDSA.equals(keyAlg) || AlgorithmConstants.KEYALGORITHM_EC.equals(keyAlg)) {
+				if (!EC_CURVES.contains(keySpec)) {
+					log.error(keySpec + " is not a known EC curve.");
+					return CommandResult.CLI_FAILURE;
+				}
+			}
 		}
 
 		final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(COMMAND_URL)
@@ -141,8 +225,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 		}
 		
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
-		
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix);
+
+		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec);
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -244,11 +328,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 		StringBuilder sb = new StringBuilder();
 		sb.append(getCommandDescription() + "\n\n");
 		sb.append(
-				"This command will spin up an n number of threads, which will submit an x number of pre-genereated CSRs each against the given CA.\n");
-		sb.append("For simplicity, the keys generated for each CSR will be set to use Elliptic Curve P256\n\n");
+				"This command will spin up an n number of threads, which will submit an x number of pre-generated CSRs each against the given CA.\n");
+		sb.append("By default, keys generated for each CSR will use ECDSA with the secp256r1 curve.\n");
+		sb.append("You can configure the key algorithm using " + KEYALG_ARG + " (RSA, ECDSA, ML-DSA-44, ML-DSA-65, ML-DSA-87) ");
+		sb.append("and key specification using " + KEYSPEC_ARG + " (RSA key size or EC curve name).\n\n");
 		sb.append(
 				"To allow for easy cleaning of the database afterwards, all end entities will have their usernames prefixed with "
-						+ STRESS_TEST_PREFIX_DEFAULT + "\n");
+						+ STRESS_TEST_PREFIX_DEFAULT + " by default.\n");
 		sb.append("You can then clean the database using the following SQL commands: \n");
 		sb.append("    " + "DELETE FROM CertificateData WHERE username LIKE '" + STRESS_TEST_PREFIX_DEFAULT + "%';\n");
 		sb.append("    " + "DELETE FROM UserData WHERE username LIKE '" + STRESS_TEST_PREFIX_DEFAULT + "%';\n");
@@ -274,7 +360,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	@SuppressWarnings("unchecked")
 	private void generatePayloads(final int numberOfThreads, final int requestPerThread, final String caName,
-			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix) {
+			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec) {
 		log.info("Will submit a total of " + requestPerThread * numberOfThreads + " CSRs, using " + numberOfThreads
 				+ " threads.");
 		log.info("Pre generating CSR payloads...");
@@ -287,16 +373,16 @@ public class X509StressTestCommand extends ErceCommandBase {
 			for (int i = 0; i < numberOfThreads; ++i) {
 				for (int j = 0; j < requestPerThread; ++j) {
 					final String endEntityName = prefix + "_" + i + "_" + j + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
-					final String subjectDn = "CN=" + endEntityName;					
+					final String subjectDn = "CN=" + endEntityName;
 					if (keyPair == null || !singleKey) {
 						try {
-							keyPair = KeyTools.genKeys("secp256r1", AlgorithmConstants.KEYALGORITHM_ECDSA);
+							keyPair = KeyTools.genKeys(keySpec, keyAlg);
 						} catch (InvalidAlgorithmParameterException e) {
 							throw new IllegalStateException("Could not generate key pairs.", e);
 						}
 					}
 					final PKCS10CertificationRequest pkcs10 = generateCertificateRequest(
-							DnComponents.stringToBcX500Name(subjectDn), keyPair);
+							DnComponents.stringToBcX500Name(subjectDn), keyPair, keyAlg);
 					final StringWriter pemout = new StringWriter();
 					JcaPEMWriter pm = new JcaPEMWriter(pemout);
 					pm.writeObject(pkcs10);
@@ -326,12 +412,39 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	}
 
-	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair) throws IOException {
+	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg) throws IOException {
 		try {
-			return CertTools.genPKCS10CertificationRequest(AlgorithmConstants.SIGALG_SHA256_WITH_ECDSA, userDN,
-					keyPair.getPublic(), null, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
+			final PublicKey publicKey = keyPair.getPublic();
+			final String sigAlg;
+
+			// Determine signature algorithm based on key algorithm
+			if (AlgorithmConstants.KEYALGORITHM_RSA.equals(keyAlg)) {
+				sigAlg = "SHA256WithRSA";
+			} else if (AlgorithmConstants.KEYALGORITHM_ECDSA.equals(keyAlg) || AlgorithmConstants.KEYALGORITHM_EC.equals(keyAlg)) {
+				sigAlg = "SHA256WithECDSA";
+			} else if (AlgorithmConstants.KEYALGORITHM_MLDSA44.equals(keyAlg)) {
+				sigAlg = "ML-DSA-44";
+			} else if (AlgorithmConstants.KEYALGORITHM_MLDSA65.equals(keyAlg)) {
+				sigAlg = "ML-DSA-65";
+			} else if (AlgorithmConstants.KEYALGORITHM_MLDSA87.equals(keyAlg)) {
+				sigAlg = "ML-DSA-87";
+			} else {
+				// Fall back to AlgorithmTools for automatic detection
+				List<String> sigAlgs = AlgorithmTools.getSignatureAlgorithms(publicKey);
+				if (sigAlgs.isEmpty()) {
+					throw new IllegalStateException("Unable to determine signature algorithm for key type: " + publicKey.getClass().getName());
+				}
+				if (publicKey instanceof RSAPublicKey) {
+					sigAlg = "SHA256WithRSA"; // Avoid SHA1WithRSA
+				} else {
+					sigAlg = sigAlgs.get(0);
+				}
+			}
+
+			return CertTools.genPKCS10CertificationRequest(sigAlg, userDN,
+					publicKey, null, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
 		} catch (OperatorCreationException e) {
-			throw new IllegalStateException("Unable to generate CSR:.", e);
+			throw new IllegalStateException("Unable to generate CSR.", e);
 		}
 
 	}
