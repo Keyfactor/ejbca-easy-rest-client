@@ -12,9 +12,9 @@
 	<classpathentry kind="lib" path="build/lib/asm-commons-9.7.1.jar"/>
 	<classpathentry kind="lib" path="build/lib/asm-tree-9.7.1.jar"/>
 	<classpathentry kind="lib" path="build/lib/asyncutil-0.1.0.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcpkix-jdk18on-1.80.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcprov-jdk18on-1.80.jar"/>
-	<classpathentry kind="lib" path="build/lib/bcutil-jdk18on-1.80.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcpkix-jdk18on-1.83.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcprov-jdk18on-1.83.jar"/>
+	<classpathentry kind="lib" path="build/lib/bcutil-jdk18on-1.83.jar"/>
 	<classpathentry kind="lib" path="build/lib/commons-codec-1.15.jar"/>
 	<classpathentry kind="lib" path="build/lib/commons-exec-1.4.0.jar"/>
 	<classpathentry kind="lib" path="build/lib/commons-io-2.18.0.jar"/>
@@ -50,5 +50,5 @@
 	<classpathentry kind="lib" path="build/lib/jackson-annotations-2.19.0.jar"/>
 	<classpathentry kind="lib" path="build/lib/jackson-core-2.19.0.jar"/>
 	<classpathentry kind="lib" path="build/lib/jackson-databind-2.19.0.jar"/>
-	<classpathentry kind="output" path="bin"/>
+	<classpathentry kind="output" path="bin/default"/>
 </classpath>
