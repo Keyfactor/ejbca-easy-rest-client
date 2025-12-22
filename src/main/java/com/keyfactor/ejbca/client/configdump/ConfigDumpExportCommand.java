@@ -73,10 +73,12 @@ public class ConfigDumpExportCommand extends ConfigDumpCommandBase {
 		registerParameter(new Parameter(EXCLUDE_ARG, "Semicolon separated list", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Names of items/types to exclude in the export, separated by semicolon. Type and name is separated by a colon, and wildcards \"*\" are allowed. " 
 						+ "Both are case-insensitive. E.g. exclude=\"*:Example CA;cryptotoken:Example*;systemconfiguration:*\". Supported types are: ACMECONFIG/acme-config, "
-						+ "AUTOENROLLMENTCONFIG/autoenrollment-config, CA/certification-authorities, CRYPTOTOKEN/crypto-tokens, PUBLISHER/publishers, APPROVALPROFILE/approval-profiles, "
-						+ "CERTPROFILE/certificate-profiles, EEPROFILE/end-entity-profiles, SERVICE/services, ROLE/admin-roles, KEYBINDING/internal-key-bindings, ADMINPREFS/admin-preferences, "
-						+ "OCSPCONFIG/ocsp-configuration, PEERCONNECTOR/peer-connectors, SCEPCONFIG/scep-config, CMPCONFIG/cmp-config, ESTCONFIG/est-config, VALIDATOR/validators, CTLOG/ct-logs, "
-						+ "EXTENDEDKEYUSAGE/extended-key-usage, CERTEXTENSION/custom-certificate-extensions, OAUTHKEY/trusted-oauth-providers, AVAILABLEPROTOCOLS/available-protocols"));
+						+ "ADMINPREFS/admin-preferences, APPROVALPROFILE/approval-profiles, AUTOENROLLMENTCONFIG/autoenrollment-config, AVAILABLEPROTOCOLS/available-protocols, CA/certification-authorities, "
+						+ "CERTEXTENSION/custom-certificate-extensions, CERTPROFILE/certificate-profiles, CMPCONFIG/cmp-config, CRYPTOTOKEN/crypto-tokens, "
+						+ "CTLOG/ct-logs, EEPROFILE/end-entity-profiles, ESTCONFIG/est-config, EXTENDEDKEYUSAGE/extended-key-usage, KEYBINDING/internal-key-bindings, "
+						+ "OAUTHKEY/trusted-oauth-providers, OCSPCONFIG/ocsp-configuration, PEERCONNECTOR/peer-connectors, PUBLISHER/publishers,  ROLE/admin-roles, SCEPCONFIG/scep-config, "
+						+ "SERVICE/services, GLOBALCESECORECONFIG/global-cesecore-configuration, VALIDATOR/validators, "
+						));
 	}
 	
 	@Override
