@@ -38,7 +38,15 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.log4j.Logger;
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.DERSet;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.ExtensionsGenerator;
+import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
@@ -80,12 +88,15 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String POSTFIX_ARG = "--postfix";
 	private static final String KEYALG_ARG = "--keyalg";
 	private static final String KEYSPEC_ARG = "--keyspec";
+	private static final String SUBJECTDN_ARG = "--subjectdn";
+	private static final String SAN_ARG = "--san";
 
 	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
 			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
 	private static final Set<String> EC_CURVES = AlgorithmTools.getOnlyNamedEcCurvesMap().keySet();
 
 	private String[][] payloads;
+	private String[][] subjectDns;
 
 	{
 		registerParameter(new Parameter(CA_ARG, "CA Name", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
@@ -123,6 +134,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT,
 				"Key Specification.\n If cipher was RSA, must be one of [ 1024, 1536, 2048, 3072, 4096, 6144, 8192 ]. Default is 2048.\n If cipher was EC/ECDSA, must be one of "
 						+ ecCurvesFormatted + ". Default is secp256r1.\n Should be omitted for ML-DSA variants."));
+		registerParameter(new Parameter(SUBJECTDN_ARG, "Subject DN", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional Subject DN for certificates. If a CN attribute is present, the prefix and postfix will be applied to it. Default is 'CN=<prefix>_<threadId>_<certId>_<postfix>'."));
+		registerParameter(new Parameter(SAN_ARG, "Subject Alternative Name", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional Subject Alternative Name (SAN) for certificates. Format: 'dnsName=example.com' or 'dnsName=example.com,ipAddress=192.168.1.1'. If a dnsName is provided, the prefix and postfix will be applied to it."));
 
 	}
 
@@ -142,6 +157,20 @@ public class X509StressTestCommand extends ErceCommandBase {
 			postfix = parameters.get(POSTFIX_ARG);
 		} else {
 			postfix = "";
+		}
+
+		final String subjectDn;
+		if(parameters.containsKey(SUBJECTDN_ARG)) {
+			subjectDn = parameters.get(SUBJECTDN_ARG);
+		} else {
+			subjectDn = null;
+		}
+
+		final String subjectAltName;
+		if(parameters.containsKey(SAN_ARG)) {
+			subjectAltName = parameters.get(SAN_ARG);
+		} else {
+			subjectAltName = null;
 		}
 
 		// Parse and validate key algorithm
@@ -226,7 +255,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 		
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
 
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec);
+		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName);
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -244,10 +273,12 @@ public class X509StressTestCommand extends ErceCommandBase {
 		for (int threadNumber = 0; threadNumber < numberOfThreads; ++threadNumber) {
 			final int row = threadNumber;
 			futures.add(CompletableFuture.supplyAsync(() -> {
-				
+
 				List<String> failures = new ArrayList<>();
 				for (int i = 0; i < requestPerThread; ++i) {
 					String payload = payloads[row][i];
+					String certSubjectDn = subjectDns[row][i];
+					String cnInfo = extractCNForErrorMessage(certSubjectDn);
 					final HttpPost request = new HttpPost(restUrl);
 					try {
 						request.setEntity(new StringEntity(payload));
@@ -257,7 +288,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 							switch (response.getStatusLine().getStatusCode()) {
 							case 404:
-								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + " - Return code was: 404: " + responseString;
+								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Return code was: 404: " + responseString;
 								getLogger().error(msg404);
 								failures.add(msg404);
 								break;
@@ -266,7 +297,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 								// Do nothing.
 								break;
 							default:
-								String msgOthers = "Thread ID: " + row + ", Iteration: " + i + " - Return code was: " + response.getStatusLine().getStatusCode() + ": "
+								String msgOthers = "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Return code was: " + response.getStatusLine().getStatusCode() + ": "
 										+ responseString;
 								getLogger().error(msgOthers);
 								failures.add(msgOthers);
@@ -360,12 +391,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	@SuppressWarnings("unchecked")
 	private void generatePayloads(final int numberOfThreads, final int requestPerThread, final String caName,
-			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec) {
+			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec, final String customSubjectDn, final String customSubjectAltName) {
 		log.info("Will submit a total of " + requestPerThread * numberOfThreads + " CSRs, using " + numberOfThreads
 				+ " threads.");
 		log.info("Pre generating CSR payloads...");
 		final String password = "foo123";
 		this.payloads = new String[numberOfThreads][requestPerThread];
+		this.subjectDns = new String[numberOfThreads][requestPerThread];
 		final int increment = numberOfThreads / 10;
 		int counter = 0;
 		KeyPair keyPair = null;	
@@ -373,7 +405,33 @@ public class X509StressTestCommand extends ErceCommandBase {
 			for (int i = 0; i < numberOfThreads; ++i) {
 				for (int j = 0; j < requestPerThread; ++j) {
 					final String endEntityName = prefix + "_" + i + "_" + j + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
-					final String subjectDn = "CN=" + endEntityName;
+					final String subjectDn;
+					final String subjectAltName;
+
+					if (customSubjectAltName != null) {
+						// Use custom SAN and apply prefix/postfix to dnsName if present
+						subjectAltName = applyPrefixPostfixToSAN(customSubjectAltName, prefix, postfix, i, j);
+
+						if (customSubjectDn != null) {
+							// Both SAN and DN provided: use custom DN with prefix/postfix
+							subjectDn = applyPrefixPostfixToCN(customSubjectDn, prefix, postfix, i, j);
+						} else {
+							// Only SAN provided: use empty subject DN
+							subjectDn = "";
+						}
+					} else {
+						// No SAN provided
+						subjectAltName = null;
+
+						if (customSubjectDn != null) {
+							// Only DN provided: use custom DN with prefix/postfix
+							subjectDn = applyPrefixPostfixToCN(customSubjectDn, prefix, postfix, i, j);
+						} else {
+							// Neither SAN nor DN provided: default behavior with CN
+							subjectDn = "CN=" + endEntityName;
+						}
+					}
+
 					if (keyPair == null || !singleKey) {
 						try {
 							keyPair = KeyTools.genKeys(keySpec, keyAlg);
@@ -381,8 +439,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 							throw new IllegalStateException("Could not generate key pairs.", e);
 						}
 					}
+					// Handle empty subject DN when only SAN is provided
+					final X500Name userDN = StringUtils.isBlank(subjectDn) ? new X500Name("") : DnComponents.stringToBcX500Name(subjectDn);
 					final PKCS10CertificationRequest pkcs10 = generateCertificateRequest(
-							DnComponents.stringToBcX500Name(subjectDn), keyPair, keyAlg);
+							userDN, keyPair, keyAlg, subjectAltName);
 					final StringWriter pemout = new StringWriter();
 					JcaPEMWriter pm = new JcaPEMWriter(pemout);
 					pm.writeObject(pkcs10);
@@ -400,6 +460,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 					param.writeJSONString(out);
 					final String payload = out.toString();
 					this.payloads[i][j] = payload;
+					this.subjectDns[i][j] = subjectDn;
 				}
 				if (i == counter) {
 					log.info(((double) i) / ((double) numberOfThreads) * 100 + " % done.");
@@ -412,7 +473,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	}
 
-	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg) throws IOException {
+	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg, final String subjectAltName) throws IOException {
 		try {
 			final PublicKey publicKey = keyPair.getPublic();
 			final String sigAlg;
@@ -441,12 +502,104 @@ public class X509StressTestCommand extends ErceCommandBase {
 				}
 			}
 
+			// Add SAN extension if provided
+			ExtensionsGenerator extensionsGenerator = new ExtensionsGenerator();
+			if (!StringUtils.isBlank(subjectAltName)) {
+				GeneralNames san = DnComponents.getGeneralNamesFromAltName(subjectAltName);
+				extensionsGenerator.addExtension(Extension.subjectAlternativeName, false, san);
+			}
+
+			DERSet attributes;
+			if (!extensionsGenerator.isEmpty()) {
+				final Extensions extensions = extensionsGenerator.generate();
+				// Add the extension(s) to the PKCS#10 request as a pkcs_9_at_extensionRequest
+				ASN1EncodableVector extensionattr = new ASN1EncodableVector();
+				extensionattr.add(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+				extensionattr.add(new DERSet(extensions));
+				// Complete the Attribute section of the request, the set (Attributes) contains one sequence (Attribute)
+				ASN1EncodableVector v = new ASN1EncodableVector();
+				v.add(new DERSequence(extensionattr));
+				attributes = new DERSet(v);
+			} else {
+				attributes = new DERSet();
+			}
+
 			return CertTools.genPKCS10CertificationRequest(sigAlg, userDN,
-					publicKey, null, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
+					publicKey, attributes, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
 		} catch (OperatorCreationException e) {
 			throw new IllegalStateException("Unable to generate CSR.", e);
 		}
 
+	}
+
+	private String applyPrefixPostfixToCN(final String subjectDn, final String prefix, final String postfix, final int threadId, final int certId) {
+		// Parse the subject DN to find CN attribute
+		String[] parts = subjectDn.split(",");
+		StringBuilder result = new StringBuilder();
+
+		for (int i = 0; i < parts.length; i++) {
+			String part = parts[i].trim();
+			if (part.toUpperCase().startsWith("CN=")) {
+				// Extract the CN value
+				String cnValue = part.substring(3).trim();
+				// Apply prefix and postfix
+				String modifiedCN = "CN=" + prefix + "_" + cnValue + "_" + threadId + "_" + certId + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
+				result.append(modifiedCN);
+			} else {
+				result.append(part);
+			}
+
+			if (i < parts.length - 1) {
+				result.append(",");
+			}
+		}
+
+		return result.toString();
+	}
+
+	private String applyPrefixPostfixToSAN(final String subjectAltName, final String prefix, final String postfix, final int threadId, final int certId) {
+		// Parse the SAN to find dnsName attributes and apply prefix/postfix
+		String[] parts = subjectAltName.split(",");
+		StringBuilder result = new StringBuilder();
+
+		for (int i = 0; i < parts.length; i++) {
+			String part = parts[i].trim();
+			if (part.toLowerCase().startsWith("dnsname=")) {
+				// Extract the dnsName value
+				String dnsValue = part.substring(8).trim();
+				// Apply prefix and postfix to DNS name
+				String modifiedDNS = "dnsName=" + prefix + "_" + dnsValue + "_" + threadId + "_" + certId + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
+				result.append(modifiedDNS);
+			} else {
+				// Keep other SAN types unchanged (ipAddress, email, etc.)
+				result.append(part);
+			}
+
+			if (i < parts.length - 1) {
+				result.append(",");
+			}
+		}
+
+		return result.toString();
+	}
+
+	private String extractCNForErrorMessage(final String subjectDn) {
+		// Extract CN from subject DN for error messages
+		if (StringUtils.isBlank(subjectDn)) {
+			return "";
+		}
+
+		String[] parts = subjectDn.split(",");
+		for (String part : parts) {
+			String trimmedPart = part.trim();
+			if (trimmedPart.toUpperCase().startsWith("CN=")) {
+				// Extract the CN value and return in the format ", CN=value"
+				return ", " + trimmedPart;
+			}
+		}
+
+		// No CN found, return empty string
+		return "";
 	}
 
 
