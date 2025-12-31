@@ -111,6 +111,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String BACKDATEREVOKE_ARG = "--backdaterevoke";
 	private static final String SAVECERTS_ARG = "--savecerts";
 	private static final String REVOKEFILE_ARG = "--revokefile";
+	private static final String OUTPUT_FORMAT_ARG = "--outputformat";
+	private static final String OUTPUT_FILE_ARG = "--outputfile";
+	private static final String PROGRESS_INTERVAL_ARG = "--progressinterval";
 
 	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
 			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
@@ -118,6 +121,14 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	private String[][] payloads;
 	private String[][] subjectDns;
+
+	// Volatile counters for real-time progress tracking
+	private volatile long totalIssuanceAttempts = 0;
+	private volatile long totalSuccessfulIssuances = 0;
+	private volatile long totalFailedIssuances = 0;
+	private volatile long totalSuccessfulRevocations = 0;
+	private volatile long totalFailedRevocations = 0;
+	private volatile boolean stopProgressTracking = false;
 
 	// Inner class to hold stress test results
 	private static class StressTestResult {
@@ -208,11 +219,50 @@ public class X509StressTestCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT, "Save issued certificate information (serial number and issuer DN) to specified file for later bulk revocation."));
 		registerParameter(new Parameter(REVOKEFILE_ARG, "filename", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Perform bulk revocation of certificates listed in the specified file (created with --savecerts). When this flag is used, no new certificates are issued."));
+		registerParameter(new Parameter(OUTPUT_FORMAT_ARG, "Output format", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Output format for test results. Options: 'console' (default), 'csv', 'markdown'. When csv or markdown is specified, --outputfile is required."));
+		registerParameter(new Parameter(OUTPUT_FILE_ARG, "Output file", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "File path to save test results in CSV or Markdown format. Required when --outputformat is csv or markdown."));
+		registerParameter(new Parameter(PROGRESS_INTERVAL_ARG, "Progress interval (seconds)", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Interval in seconds for displaying real-time progress updates. Default: 5 seconds. Set to 0 to disable progress updates."));
 
 	}
 
 	@Override
 	protected CommandResult execute(ParameterContainer parameters) {
+		// Parse output format parameters (before mode check, needed for both modes)
+		final String outputFormat = parameters.get(OUTPUT_FORMAT_ARG) != null ? parameters.get(OUTPUT_FORMAT_ARG) : "console";
+		final String outputFile = parameters.get(OUTPUT_FILE_ARG);
+
+		// Validate output format
+		if (!outputFormat.equals("console") && !outputFormat.equals("csv") && !outputFormat.equals("markdown")) {
+			log.error("Invalid output format: " + outputFormat + ". Must be 'console', 'csv', or 'markdown'");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		// Validate that outputFile is provided if format is csv or markdown
+		if ((outputFormat.equals("csv") || outputFormat.equals("markdown")) && outputFile == null) {
+			log.error("--outputfile is required when --outputformat is '" + outputFormat + "'");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		// Parse progress interval
+		final int progressInterval;
+		if (parameters.get(PROGRESS_INTERVAL_ARG) != null) {
+			try {
+				progressInterval = Integer.valueOf(parameters.get(PROGRESS_INTERVAL_ARG));
+			} catch (NumberFormatException e) {
+				log.error(PROGRESS_INTERVAL_ARG + " was not a numeric value");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (progressInterval < 0) {
+				log.error(PROGRESS_INTERVAL_ARG + " must be non-negative");
+				return CommandResult.CLI_FAILURE;
+			}
+		} else {
+			progressInterval = 5; // Default: 5 seconds
+		}
+
 		// Check if running in bulk revocation mode
 		final String revokeFile = parameters.get(REVOKEFILE_ARG);
 		final boolean isBulkRevocationMode = !StringUtils.isBlank(revokeFile);
@@ -256,7 +306,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		// If --revokefile is specified, perform bulk revocation instead of enrollment
 		if (isBulkRevocationMode) {
-			return performBulkRevocation(revokeFile, backdateRevocation, numberOfThreads);
+			return performBulkRevocation(revokeFile, backdateRevocation, numberOfThreads, outputFormat, outputFile, progressInterval);
 		}
 
 		// Below this point: enrollment mode only
@@ -395,6 +445,58 @@ public class X509StressTestCommand extends ErceCommandBase {
 		// Calculate total payloads per thread considering history certificates
 		final int certsPerEntity = 1 + historyCount;
 		final int totalPayloadsPerThread = requestPerThread * certsPerEntity;
+		final long expectedTotalCerts = (long) numberOfThreads * requestPerThread * certsPerEntity;
+
+		// Reset counters
+		totalIssuanceAttempts = 0;
+		totalSuccessfulIssuances = 0;
+		totalFailedIssuances = 0;
+		totalSuccessfulRevocations = 0;
+		totalFailedRevocations = 0;
+		stopProgressTracking = false;
+
+		// Start progress tracking thread if enabled
+		Thread progressThread = null;
+		if (progressInterval > 0) {
+			progressThread = new Thread(() -> {
+				long lastAttempts = 0;
+				long lastTime = System.currentTimeMillis();
+
+				while (!stopProgressTracking) {
+					try {
+						Thread.sleep(progressInterval * 1000L);
+
+						if (stopProgressTracking) {
+							break;
+						}
+
+						long currentTime = System.currentTimeMillis();
+						long currentAttempts = totalIssuanceAttempts;
+						long intervalAttempts = currentAttempts - lastAttempts;
+						double intervalSeconds = (currentTime - lastTime) / 1000.0;
+						double certsPerSec = intervalSeconds > 0 ? intervalAttempts / intervalSeconds : 0;
+
+						if (revokeAfterIssuance) {
+							System.out.println(String.format("Progress: %d/%d certs (%d successful, %d failed), %d revoked (%d successful, %d failed) - %.2f certs/s",
+									currentAttempts, expectedTotalCerts, totalSuccessfulIssuances, totalFailedIssuances,
+									totalSuccessfulRevocations + totalFailedRevocations, totalSuccessfulRevocations, totalFailedRevocations,
+									certsPerSec));
+						} else {
+							System.out.println(String.format("Progress: %d/%d certs (%d successful, %d failed) - %.2f certs/s",
+									currentAttempts, expectedTotalCerts, totalSuccessfulIssuances, totalFailedIssuances, certsPerSec));
+						}
+
+						lastAttempts = currentAttempts;
+						lastTime = currentTime;
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+				}
+			});
+			progressThread.setDaemon(true);
+			progressThread.start();
+		}
 
 		long startTime = System.currentTimeMillis();
 		List<CompletableFuture<StressTestResult>> futures = new ArrayList<>();
@@ -410,6 +512,12 @@ public class X509StressTestCommand extends ErceCommandBase {
 					String certSubjectDn = subjectDns[row][i];
 					String cnInfo = extractCNForErrorMessage(certSubjectDn);
 					final HttpPost request = new HttpPost(restUrl);
+
+					// Increment attempt counter
+					synchronized (X509StressTestCommand.this) {
+						totalIssuanceAttempts++;
+					}
+
 					try {
 						request.setEntity(new StringEntity(payload));
 						// connect to EJBCA and send the CSR and get an issued certificate back
@@ -421,6 +529,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Return code was: 404: " + responseString;
 								getLogger().error(msg404);
 								issuanceFailures.add(msg404);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedIssuances++;
+								}
 								break;
 							case 200:
 							case 201:
@@ -437,6 +548,11 @@ public class X509StressTestCommand extends ErceCommandBase {
 									String issuerDn = CertTools.getIssuerDN(certificate);
 									issuedCertificates.add(new CertificateInfo(serialNumber, issuerDn));
 
+									// Increment successful issuance counter
+									synchronized (X509StressTestCommand.this) {
+										totalSuccessfulIssuances++;
+									}
+
 									// Revoke if requested
 									if (revokeAfterIssuance) {
 										revokeCertificate(certificate, issuerDn, serialNumber, backdateRevocation, row, i, cnInfo, revocationFailures);
@@ -445,6 +561,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 									String msgParseError = "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Failed to parse certificate: " + e.getMessage();
 									getLogger().error(msgParseError);
 									issuanceFailures.add(msgParseError);
+									synchronized (X509StressTestCommand.this) {
+										totalFailedIssuances++;
+									}
 								}
 								break;
 							default:
@@ -452,14 +571,23 @@ public class X509StressTestCommand extends ErceCommandBase {
 										+ responseString;
 								getLogger().error(msgOthers);
 								issuanceFailures.add(msgOthers);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedIssuances++;
+								}
 								break;
 							}
 						} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
 								| KeyStoreException e) {
 							getLogger().error("Could not perform request: " + e.getMessage());
+							synchronized (X509StressTestCommand.this) {
+								totalFailedIssuances++;
+							}
 						}
 					} catch (IOException e) {
 						getLogger().error("Could not perform request: " + e.getMessage());
+						synchronized (X509StressTestCommand.this) {
+							totalFailedIssuances++;
+						}
 					}
 				}
 				return new StressTestResult(issuanceFailures, revocationFailures, issuedCertificates);
@@ -485,6 +613,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		allFutures.join();
 		long endTime = System.currentTimeMillis();
+
+		// Stop progress tracking
+		stopProgressTracking = true;
+
 		log.info("Fire mission complete. Weapons hold.\n");
 
 		if(!issuanceResults.isEmpty()) {
@@ -505,7 +637,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 		long totalCerts = numberOfThreads * requestPerThread * certsPerEntityFinal;
 		long totalEntities = numberOfThreads * requestPerThread;
 		long successfulIssuances = totalCerts - issuanceResults.size();
-		double executionTime =  (endTime - startTime)/1000;
+		long duration = endTime - startTime;
+		double executionTime =  duration / 1000.0;
 		log.info("Total execution time: " + executionTime + " seconds.");
 		if(successfulIssuances > 0) {
 			double averageTime = executionTime / successfulIssuances;
@@ -513,8 +646,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 			log.info("Throughput: " + 1 / averageTime + " certificates issued per second.");
 		}
 		log.info((successfulIssuances) + " certificates were successfully issued, with " + issuanceResults.size() + " issuance failures.");
+		long successfulRevocations = 0;
 		if(revokeAfterIssuance) {
-			long successfulRevocations = successfulIssuances - revocationResults.size();
+			successfulRevocations = successfulIssuances - revocationResults.size();
 			log.info((successfulRevocations) + " certificates were successfully revoked, with " + revocationResults.size() + " revocation failures.");
 		}
 		if(historyCount > 0) {
@@ -524,6 +658,27 @@ public class X509StressTestCommand extends ErceCommandBase {
 		// Save certificates if requested
 		if (!StringUtils.isBlank(saveCertsFile) && !allIssuedCertificates.isEmpty()) {
 			saveCertificatesToFile(allIssuedCertificates, saveCertsFile);
+		}
+
+		// Write results to file if requested
+		if (outputFormat.equals("csv")) {
+			try {
+				writeIssuanceResultsToCsv(outputFile, totalCerts, successfulIssuances, issuanceResults.size(),
+						successfulRevocations, revocationResults.size(), duration, revokeAfterIssuance);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write CSV results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		} else if (outputFormat.equals("markdown")) {
+			try {
+				writeIssuanceResultsToMarkdown(outputFile, totalCerts, successfulIssuances, issuanceResults.size(),
+						successfulRevocations, revocationResults.size(), duration, revokeAfterIssuance);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write Markdown results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
 		}
 
 		return CommandResult.SUCCESS;
@@ -836,6 +991,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 							+ " - Revocation failed with code " + statusCode + ": " + responseString;
 					getLogger().error(msgRevokeFailed);
 					failures.add(msgRevokeFailed);
+					synchronized (X509StressTestCommand.this) {
+						totalFailedRevocations++;
+					}
+				} else {
+					synchronized (X509StressTestCommand.this) {
+						totalSuccessfulRevocations++;
+					}
 				}
 			}
 		} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException | IOException e) {
@@ -843,6 +1005,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 					+ " - Revocation request failed: " + e.getMessage();
 			getLogger().error(msgRevokeError);
 			failures.add(msgRevokeError);
+			synchronized (X509StressTestCommand.this) {
+				totalFailedRevocations++;
+			}
 		}
 	}
 
@@ -891,9 +1056,178 @@ public class X509StressTestCommand extends ErceCommandBase {
 	}
 
 	/**
+	 * Write issuance test results to CSV file
+	 */
+	private void writeIssuanceResultsToCsv(String filename, long totalCerts, long successfulIssuances, long issuanceFailures,
+			long successfulRevocations, long revocationFailures, long duration, boolean includeRevocation) throws IOException {
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			// Write header
+			if (includeRevocation) {
+				writer.write("Test Duration (s),Total Certificates,Successful Issuances,Failed Issuances,Throughput (certs/s),Successful Revocations,Failed Revocations,Timestamp");
+			} else {
+				writer.write("Test Duration (s),Total Certificates,Successful Issuances,Failed Issuances,Throughput (certs/s),Timestamp");
+			}
+			writer.newLine();
+
+			// Calculate throughput
+			double executionTime = duration / 1000.0;
+			double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
+
+			// Write data row
+			String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+			if (includeRevocation) {
+				writer.write(String.format("%.2f,%d,%d,%d,%.2f,%d,%d,%s",
+						executionTime, totalCerts, successfulIssuances, issuanceFailures, throughput,
+						successfulRevocations, revocationFailures, timestamp));
+			} else {
+				writer.write(String.format("%.2f,%d,%d,%d,%.2f,%s",
+						executionTime, totalCerts, successfulIssuances, issuanceFailures, throughput, timestamp));
+			}
+			writer.newLine();
+		}
+	}
+
+	/**
+	 * Write issuance test results to Markdown file
+	 */
+	private void writeIssuanceResultsToMarkdown(String filename, long totalCerts, long successfulIssuances, long issuanceFailures,
+			long successfulRevocations, long revocationFailures, long duration, boolean includeRevocation) throws IOException {
+		double executionTime = duration / 1000.0;
+		double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
+		String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			writer.write("# X509 Stress Test Results");
+			writer.newLine();
+			writer.newLine();
+			writer.write("**Generated:** " + timestamp);
+			writer.newLine();
+			writer.newLine();
+
+			// Test Configuration section
+			writer.write("## Test Configuration");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Test Duration | %.2f seconds |", executionTime));
+			writer.newLine();
+			writer.newLine();
+
+			// Issuance Metrics table
+			writer.write("## Issuance Metrics");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Total Certificates | %,d |", totalCerts));
+			writer.newLine();
+			writer.write(String.format("| Successful Issuances | %,d |", successfulIssuances));
+			writer.newLine();
+			writer.write(String.format("| Failed Issuances | %,d |", issuanceFailures));
+			writer.newLine();
+			writer.write(String.format("| Throughput | %.2f certs/s |", throughput));
+			writer.newLine();
+			writer.newLine();
+
+			// Revocation Metrics table (if revocation was performed)
+			if (includeRevocation) {
+				writer.write("## Revocation Metrics");
+				writer.newLine();
+				writer.newLine();
+				writer.write("| Metric | Value |");
+				writer.newLine();
+				writer.write("|--------|-------|");
+				writer.newLine();
+				writer.write(String.format("| Successful Revocations | %,d |", successfulRevocations));
+				writer.newLine();
+				writer.write(String.format("| Failed Revocations | %,d |", revocationFailures));
+				writer.newLine();
+				writer.newLine();
+			}
+		}
+	}
+
+	/**
+	 * Write bulk revocation test results to CSV file
+	 */
+	private void writeRevocationResultsToCsv(String filename, long totalCerts, long successfulRevocations,
+			long revocationFailures, long duration) throws IOException {
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			// Write header
+			writer.write("Test Duration (s),Total Certificates,Successful Revocations,Failed Revocations,Throughput (certs/s),Timestamp");
+			writer.newLine();
+
+			// Calculate throughput
+			double executionTime = duration / 1000.0;
+			double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
+
+			// Write data row
+			String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+			writer.write(String.format("%.2f,%d,%d,%d,%.2f,%s",
+					executionTime, totalCerts, successfulRevocations, revocationFailures, throughput, timestamp));
+			writer.newLine();
+		}
+	}
+
+	/**
+	 * Write bulk revocation test results to Markdown file
+	 */
+	private void writeRevocationResultsToMarkdown(String filename, long totalCerts, long successfulRevocations,
+			long revocationFailures, long duration) throws IOException {
+		double executionTime = duration / 1000.0;
+		double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
+		String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			writer.write("# X509 Bulk Revocation Test Results");
+			writer.newLine();
+			writer.newLine();
+			writer.write("**Generated:** " + timestamp);
+			writer.newLine();
+			writer.newLine();
+
+			// Test Configuration section
+			writer.write("## Test Configuration");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Test Duration | %.2f seconds |", executionTime));
+			writer.newLine();
+			writer.newLine();
+
+			// Revocation Metrics table
+			writer.write("## Revocation Metrics");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Total Certificates | %,d |", totalCerts));
+			writer.newLine();
+			writer.write(String.format("| Successful Revocations | %,d |", successfulRevocations));
+			writer.newLine();
+			writer.write(String.format("| Failed Revocations | %,d |", revocationFailures));
+			writer.newLine();
+			writer.write(String.format("| Throughput | %.2f certs/s |", throughput));
+			writer.newLine();
+			writer.newLine();
+		}
+	}
+
+	/**
 	 * Perform bulk revocation of certificates from file
 	 */
-	private CommandResult performBulkRevocation(String filename, boolean backdateRevocation, int numberOfThreads) {
+	private CommandResult performBulkRevocation(String filename, boolean backdateRevocation, int numberOfThreads,
+			String outputFormat, String outputFile, int progressInterval) {
 		log.info("Starting bulk revocation from file: " + filename);
 
 		// Load certificates from file
@@ -908,6 +1242,51 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		// Split certificates across threads
 		int certsPerThread = (int) Math.ceil((double) certificates.size() / numberOfThreads);
+		final long expectedTotalRevocations = certificates.size();
+
+		// Reset counters
+		totalIssuanceAttempts = 0;
+		totalSuccessfulIssuances = 0;
+		totalFailedIssuances = 0;
+		totalSuccessfulRevocations = 0;
+		totalFailedRevocations = 0;
+		stopProgressTracking = false;
+
+		// Start progress tracking thread if enabled
+		Thread progressThread = null;
+		if (progressInterval > 0) {
+			progressThread = new Thread(() -> {
+				long lastRevoked = 0;
+				long lastTime = System.currentTimeMillis();
+
+				while (!stopProgressTracking) {
+					try {
+						Thread.sleep(progressInterval * 1000L);
+
+						if (stopProgressTracking) {
+							break;
+						}
+
+						long currentTime = System.currentTimeMillis();
+						long currentRevoked = totalSuccessfulRevocations + totalFailedRevocations;
+						long intervalRevoked = currentRevoked - lastRevoked;
+						double intervalSeconds = (currentTime - lastTime) / 1000.0;
+						double certsPerSec = intervalSeconds > 0 ? intervalRevoked / intervalSeconds : 0;
+
+						System.out.println(String.format("Progress: %d/%d certs revoked (%d successful, %d failed) - %.2f certs/s",
+								currentRevoked, expectedTotalRevocations, totalSuccessfulRevocations, totalFailedRevocations, certsPerSec));
+
+						lastRevoked = currentRevoked;
+						lastTime = currentTime;
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+				}
+			});
+			progressThread.setDaemon(true);
+			progressThread.start();
+		}
 
 		log.info("\nWeapons free. Fire for effect (revocation only).");
 		long startTime = System.currentTimeMillis();
@@ -970,6 +1349,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 									statusCode + ": " + responseString;
 								revocationFailures.add(errorMsg);
 								log.error(errorMsg);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedRevocations++;
+								}
+							} else {
+								synchronized (X509StressTestCommand.this) {
+									totalSuccessfulRevocations++;
+								}
 							}
 						}
 					} catch (Exception e) {
@@ -977,6 +1363,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 							", SN=" + cert.serialNumber + " - Revocation failed with exception: " + e.getMessage();
 						revocationFailures.add(errorMsg);
 						log.error(errorMsg);
+						synchronized (X509StressTestCommand.this) {
+							totalFailedRevocations++;
+						}
 					}
 				}
 
@@ -1001,6 +1390,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		allFutures.join();
 		long endTime = System.currentTimeMillis();
+
+		// Stop progress tracking
+		stopProgressTracking = true;
+
 		log.info("Fire mission complete. Weapons hold.\n");
 
 		// Print failures if any
@@ -1014,7 +1407,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 		// Print statistics
 		long totalCerts = certificates.size();
 		long successfulRevocations = totalCerts - allRevocationFailures.size();
-		double executionTime = (endTime - startTime) / 1000.0;
+		long duration = endTime - startTime;
+		double executionTime = duration / 1000.0;
 
 		log.info("Total execution time: " + executionTime + " seconds.");
 		if (successfulRevocations > 0) {
@@ -1024,6 +1418,27 @@ public class X509StressTestCommand extends ErceCommandBase {
 		}
 		log.info(successfulRevocations + " certificates were successfully revoked, with " +
 			allRevocationFailures.size() + " revocation failures.");
+
+		// Write results to file if requested
+		if (outputFormat.equals("csv")) {
+			try {
+				writeRevocationResultsToCsv(outputFile, totalCerts, successfulRevocations,
+						allRevocationFailures.size(), duration);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write CSV results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		} else if (outputFormat.equals("markdown")) {
+			try {
+				writeRevocationResultsToMarkdown(outputFile, totalCerts, successfulRevocations,
+						allRevocationFailures.size(), duration);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write Markdown results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		}
 
 		return CommandResult.SUCCESS;
 	}

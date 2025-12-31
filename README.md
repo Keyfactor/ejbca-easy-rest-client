@@ -42,7 +42,197 @@ java -jar build/erce-1.0.0.jar enroll genkeys --authkeystore /opt/ejbca/p12/supe
 - v1/configdump
  
 ### Additional Commands
-- Stress Test
+
+#### X509 Stress Test
+
+The X509 stress test command performs multi-threaded certificate issuance testing against EJBCA to measure performance and throughput.
+
+**Basic Usage:**
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 10 \
+  --certs 100
+```
+
+**Advanced Features:**
+
+*Custom Subject DN and SAN:*
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 5 \
+  --certs 50 \
+  --subjectdn "CN=User,OU=Engineering,O=Keyfactor,C=US" \
+  --san "dnsName=user.example.com,ipAddress=10.0.0.1"
+```
+
+*Certificate History Testing (multiple certs per entity):*
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 10 \
+  --certs 100 \
+  --history 2
+```
+
+*Revocation Testing:*
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 10 \
+  --certs 100 \
+  --revoke \
+  --savecerts issued_certs.txt
+```
+
+*Bulk Revocation from File:*
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --revokefile issued_certs.txt \
+  --threads 10
+```
+
+*Progress Tracking and CSV Output:*
+```bash
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 10 \
+  --certs 100 \
+  --progressinterval 5 \
+  --outputformat csv \
+  --outputfile results.csv
+```
+
+#### OCSP Stress Test
+
+The OCSP stress test command performs multi-threaded OCSP status lookups to test OCSP responder performance.
+
+**Basic Usage:**
+```bash
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ejbca/publicweb/status/ocsp" \
+  --ocspsnfile serial_numbers.txt \
+  --cacertfile ca.pem \
+  --threads 10 \
+  --waittime 50
+```
+
+**Serial Number File Formats:**
+
+Simple format (one serial per line):
+```
+12345678
+0xABCDEF123456
+987654321
+```
+
+Or use the pipe-delimited format from `--savecerts`:
+```
+1A2B3C4D5E6F|CN=Test CA,O=Keyfactor,C=US
+7G8H9I0J1K2L|CN=Test CA,O=Keyfactor,C=US
+```
+
+**Advanced Features:**
+
+*Time-Limited Test with Random Wait:*
+```bash
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ocsp" \
+  --ocspsnfile serial_numbers.txt \
+  --cacertfile ca.pem \
+  --threads 20 \
+  --waittime 100 \
+  --duration 300 \
+  --randomwait
+```
+
+*GET Requests (instead of POST):*
+```bash
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ocsp" \
+  --ocspsnfile serial_numbers.txt \
+  --cacertfile ca.pem \
+  --threads 5 \
+  --waittime 100 \
+  --reqtype GET
+```
+
+*Save Debug Requests and Responses:*
+```bash
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ocsp" \
+  --ocspsnfile serial_numbers.txt \
+  --cacertfile ca.pem \
+  --threads 5 \
+  --waittime 100 \
+  --saveocsp /tmp/ocsp-debug
+```
+
+*Progress Tracking and Markdown Output:*
+```bash
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ocsp" \
+  --ocspsnfile serial_numbers.txt \
+  --cacertfile ca.pem \
+  --threads 10 \
+  --waittime 50 \
+  --duration 60 \
+  --progressinterval 5 \
+  --outputformat markdown \
+  --outputfile results.md
+```
+
+**Integrated Workflow (X509 + OCSP):**
+```bash
+# Step 1: Issue certificates and save for OCSP testing
+java -jar build/erce-1.9.0.jar stress \
+  --authkeystore /path/to/admin.p12 \
+  --authkeystorepass password \
+  --hostname ejbca.example.com:8443 \
+  --ca "MyCA" \
+  --certificateprofile "ENDUSER" \
+  --endentityprofile "MyProfile" \
+  --threads 10 \
+  --certs 100 \
+  --savecerts issued_certs.txt
+
+# Step 2: Run OCSP stress test on issued certificates
+java -jar build/erce-1.9.0.jar ocspstress \
+  --ocspurl "http://ejbca.example.com:8080/ocsp" \
+  --ocspsnfile issued_certs.txt \
+  --cacertfile myca.pem \
+  --threads 10 \
+  --waittime 50
+```
 
 ## Community Support
 In the [Keyfactor Community](https://www.keyfactor.com/community/), we welcome contributions. 
@@ -65,5 +255,3 @@ See all [Keyfactor EJBCA GitHub projects](https://github.com/orgs/Keyfactor/repo
 
 ### On DockerHub
 See the [EJBCA container on DockerHub](https://hub.docker.com/r/keyfactor/ejbca-ce).
-
-TESTING
