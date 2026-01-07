@@ -5,7 +5,8 @@
 
 version: 2
 updates:
-  - package-ecosystem: "maven" # See documentation for possible values
+  - package-ecosystem: "gradle" # See documentation for possible values
+    versioning-strategy: "auto"
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
