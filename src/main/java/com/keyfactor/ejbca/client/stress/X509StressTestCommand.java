@@ -12,6 +12,10 @@
  *************************************************************************/
 package com.keyfactor.ejbca.client.stress;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -23,9 +27,15 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPublicKey;
+import java.text.SimpleDateFormat;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,9 +46,18 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 import org.apache.log4j.Logger;
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.DERSet;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.ExtensionsGenerator;
+import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
@@ -52,11 +71,15 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 import org.json.simple.JSONObject;
 
 import com.keyfactor.ejbca.client.ErceCommandBase;
+import com.keyfactor.util.Base64;
 import com.keyfactor.util.CertTools;
 import com.keyfactor.util.certificate.DnComponents;
 import com.keyfactor.util.crypto.algorithm.AlgorithmConstants;
 import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
 import com.keyfactor.util.keys.KeyTools;
+
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
 /**
  * This class provides the ability to use ERCE to perform a stress test against
@@ -69,6 +92,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	private static final String STRESS_TEST_PREFIX_DEFAULT = "ErceStressTest_";
 	private static final String COMMAND_URL = "/ejbca/ejbca-rest-api/v1/certificate/pkcs10enroll";
+	private static final String REVOKE_URL_PREFIX = "/ejbca/ejbca-rest-api/v1/certificate/";
+	private static final String REVOKE_URL_SUFFIX = "/revoke";
+	private static final String REVOCATION_REASON = "UNSPECIFIED";
 
 	private static final String CA_ARG = "--ca";
 	private static final String CERTIFICATE_PROFILE_ARG = "--certificateprofile";
@@ -80,24 +106,82 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String POSTFIX_ARG = "--postfix";
 	private static final String KEYALG_ARG = "--keyalg";
 	private static final String KEYSPEC_ARG = "--keyspec";
+	private static final String SUBJECTDN_ARG = "--subjectdn";
+	private static final String SAN_ARG = "--san";
+	private static final String HISTORY_ARG = "--history";
+	private static final String REVOKE_ARG = "--revoke";
+	private static final String BACKDATEREVOKE_ARG = "--backdaterevoke";
+	private static final String SAVECERTS_ARG = "--savecerts";
+	private static final String REVOKEFILE_ARG = "--revokefile";
+	private static final String OUTPUT_FORMAT_ARG = "--outputformat";
+	private static final String OUTPUT_FILE_ARG = "--outputfile";
+	private static final String PROGRESS_INTERVAL_ARG = "--progressinterval";
 
 	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
 			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
 	private static final Set<String> EC_CURVES = AlgorithmTools.getOnlyNamedEcCurvesMap().keySet();
 
 	private String[][] payloads;
+	private String[][] subjectDns;
+
+	// Volatile counters for real-time progress tracking
+	private volatile long totalIssuanceAttempts = 0;
+	private volatile long totalSuccessfulIssuances = 0;
+	private volatile long totalFailedIssuances = 0;
+	private volatile long totalSuccessfulRevocations = 0;
+	private volatile long totalFailedRevocations = 0;
+	private volatile boolean stopProgressTracking = false;
+
+	// Inner class to hold stress test results
+	private static class StressTestResult {
+		List<String> issuanceFailures;
+		List<String> revocationFailures;
+		List<CertificateInfo> issuedCertificates;
+
+		StressTestResult(List<String> issuanceFailures, List<String> revocationFailures, List<CertificateInfo> issuedCertificates) {
+			this.issuanceFailures = issuanceFailures;
+			this.revocationFailures = revocationFailures;
+			this.issuedCertificates = issuedCertificates;
+		}
+	}
+
+	// Inner class to hold certificate information for saving/loading
+	private static class CertificateInfo {
+		String serialNumber;
+		String issuerDn;
+
+		CertificateInfo(String serialNumber, String issuerDn) {
+			this.serialNumber = serialNumber;
+			this.issuerDn = issuerDn;
+		}
+
+		// Parse from file format: serialNumber|issuerDn
+		static CertificateInfo fromString(String line) {
+			String[] parts = line.split("\\|", 2);
+			if (parts.length == 2) {
+				return new CertificateInfo(parts[0], parts[1]);
+			}
+			return null;
+		}
+
+		// Convert to file format: serialNumber|issuerDn
+		@Override
+		public String toString() {
+			return serialNumber + "|" + issuerDn;
+		}
+	}
 
 	{
-		registerParameter(new Parameter(CA_ARG, "CA Name", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Name of the Certificate Authority to test against."));
-		registerParameter(new Parameter(END_ENTITY_PROFILE_ARG, "End Entity Profile Name", MandatoryMode.MANDATORY,
-				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "End Entity Profile Name"));
-		registerParameter(new Parameter(CERTIFICATE_PROFILE_ARG, "Certificate Profile Name", MandatoryMode.MANDATORY,
-				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Certificate Profile Name"));
+		registerParameter(new Parameter(CA_ARG, "CA Name", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Name of the Certificate Authority to test against. Required for certificate issuance, not needed for --revokefile."));
+		registerParameter(new Parameter(END_ENTITY_PROFILE_ARG, "End Entity Profile Name", MandatoryMode.OPTIONAL,
+				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "End Entity Profile Name. Required for certificate issuance, not needed for --revokefile."));
+		registerParameter(new Parameter(CERTIFICATE_PROFILE_ARG, "Certificate Profile Name", MandatoryMode.OPTIONAL,
+				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Certificate Profile Name. Required for certificate issuance, not needed for --revokefile."));
 		registerParameter(new Parameter(THREADS_ARG, "Numeric Value", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Number of threads."));
-		registerParameter(new Parameter(CERTS_PER_THREAD_ARG, "Numeric Value", MandatoryMode.MANDATORY,
-				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Number CSRs to generate per thread."));
+		registerParameter(new Parameter(CERTS_PER_THREAD_ARG, "Numeric Value", MandatoryMode.OPTIONAL,
+				StandaloneMode.FORBID, ParameterMode.ARGUMENT, "Number CSRs to generate per thread. Required for certificate issuance, not needed for --revokefile."));
 		registerParameter(new Parameter(REUSE_KEY_ARG, "", MandatoryMode.OPTIONAL,
 				StandaloneMode.FORBID, ParameterMode.FLAG, "Set this flag to use the same key for all CSRs. Be aware that unique public keys must be disabled on the CA."));
 		registerParameter(new Parameter(PREFIX_ARG, "prefix", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
@@ -123,11 +207,111 @@ public class X509StressTestCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT,
 				"Key Specification.\n If cipher was RSA, must be one of [ 1024, 1536, 2048, 3072, 4096, 6144, 8192 ]. Default is 2048.\n If cipher was EC/ECDSA, must be one of "
 						+ ecCurvesFormatted + ". Default is secp256r1.\n Should be omitted for ML-DSA variants."));
+		registerParameter(new Parameter(SUBJECTDN_ARG, "Subject DN", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional Subject DN for certificates. If a CN attribute is present, the prefix and postfix will be applied to it. Default is 'CN=<prefix>_<threadId>_<certId>_<postfix>'."));
+		registerParameter(new Parameter(SAN_ARG, "Subject Alternative Name", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Optional Subject Alternative Name (SAN) for certificates. Format: 'dnsName=example.com' or 'dnsName=example.com,ipAddress=192.168.1.1'. If a dnsName is provided, the prefix and postfix will be applied to it."));
+		registerParameter(new Parameter(HISTORY_ARG, "Numeric Value", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Number of additional certificates to issue per end entity with unique keys. This allows testing certificate history in EJBCA. Default is 0 (no additional certificates)."));
+		registerParameter(new Parameter(REVOKE_ARG, "", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.FLAG, "Set this flag to revoke certificates after successful issuance. Useful for testing revocation performance and certificate lifecycle."));
+		registerParameter(new Parameter(BACKDATEREVOKE_ARG, "", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.FLAG, "Set this flag along with --revoke to use the certificate's notBefore date for revocation instead of the current time. Allows backdated revocation for certificate profiles that permit it."));
+		registerParameter(new Parameter(SAVECERTS_ARG, "filename", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Save issued certificate information (serial number and issuer DN) to specified file for later bulk revocation."));
+		registerParameter(new Parameter(REVOKEFILE_ARG, "filename", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Perform bulk revocation of certificates listed in the specified file (created with --savecerts). When this flag is used, no new certificates are issued."));
+		registerParameter(new Parameter(OUTPUT_FORMAT_ARG, "Output format", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Output format for test results. Options: 'console' (default), 'csv', 'markdown'. When csv or markdown is specified, --outputfile is required."));
+		registerParameter(new Parameter(OUTPUT_FILE_ARG, "Output file", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "File path to save test results in CSV or Markdown format. Required when --outputformat is csv or markdown."));
+		registerParameter(new Parameter(PROGRESS_INTERVAL_ARG, "Progress interval (seconds)", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Interval in seconds for displaying real-time progress updates. Default: 5 seconds. Set to 0 to disable progress updates."));
 
 	}
 
 	@Override
 	protected CommandResult execute(ParameterContainer parameters) {
+		// Parse output format parameters (before mode check, needed for both modes)
+		final String outputFormat = parameters.get(OUTPUT_FORMAT_ARG) != null ? parameters.get(OUTPUT_FORMAT_ARG) : "console";
+		final String outputFile = parameters.get(OUTPUT_FILE_ARG);
+
+		// Validate output format
+		if (!outputFormat.equals("console") && !outputFormat.equals("csv") && !outputFormat.equals("markdown")) {
+			log.error("Invalid output format: " + outputFormat + ". Must be 'console', 'csv', or 'markdown'");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		// Validate that outputFile is provided if format is csv or markdown
+		if ((outputFormat.equals("csv") || outputFormat.equals("markdown")) && outputFile == null) {
+			log.error("--outputfile is required when --outputformat is '" + outputFormat + "'");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		// Parse progress interval
+		final int progressInterval;
+		if (parameters.get(PROGRESS_INTERVAL_ARG) != null) {
+			try {
+				progressInterval = Integer.valueOf(parameters.get(PROGRESS_INTERVAL_ARG));
+			} catch (NumberFormatException e) {
+				log.error(PROGRESS_INTERVAL_ARG + " was not a numeric value");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (progressInterval < 0) {
+				log.error(PROGRESS_INTERVAL_ARG + " must be non-negative");
+				return CommandResult.CLI_FAILURE;
+			}
+		} else {
+			progressInterval = 5; // Default: 5 seconds
+		}
+
+		// Check if running in bulk revocation mode
+		final String revokeFile = parameters.get(REVOKEFILE_ARG);
+		final boolean isBulkRevocationMode = !StringUtils.isBlank(revokeFile);
+
+		// Validate required parameters based on mode
+		if (!isBulkRevocationMode) {
+			// Enrollment mode: require CA, profiles, and certs parameters
+			if (StringUtils.isBlank(parameters.get(CA_ARG))) {
+				log.error(CA_ARG + " is required for certificate issuance. Use --help for more information.");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (StringUtils.isBlank(parameters.get(END_ENTITY_PROFILE_ARG))) {
+				log.error(END_ENTITY_PROFILE_ARG + " is required for certificate issuance. Use --help for more information.");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (StringUtils.isBlank(parameters.get(CERTIFICATE_PROFILE_ARG))) {
+				log.error(CERTIFICATE_PROFILE_ARG + " is required for certificate issuance. Use --help for more information.");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (StringUtils.isBlank(parameters.get(CERTS_PER_THREAD_ARG))) {
+				log.error(CERTS_PER_THREAD_ARG + " is required for certificate issuance. Use --help for more information.");
+				return CommandResult.CLI_FAILURE;
+			}
+		}
+
+		// Parse thread count (required for both modes)
+		final int numberOfThreads;
+		try {
+			numberOfThreads = Integer.valueOf(parameters.get(THREADS_ARG));
+		} catch (NumberFormatException e) {
+			log.error(THREADS_ARG + " was not a numeric value");
+			return CommandResult.CLI_FAILURE;
+		}
+		if (numberOfThreads < 1) {
+			log.error(THREADS_ARG + " must be a positive value");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		// Parse revocation flags
+		final boolean backdateRevocation = parameters.containsKey(BACKDATEREVOKE_ARG);
+
+		// If --revokefile is specified, perform bulk revocation instead of enrollment
+		if (isBulkRevocationMode) {
+			return performBulkRevocation(revokeFile, backdateRevocation, numberOfThreads, outputFormat, outputFile, progressInterval);
+		}
+
+		// Below this point: enrollment mode only
 		final String endEntityProfileName = parameters.get(END_ENTITY_PROFILE_ARG);
 		final String certificateProfileName = parameters.get(CERTIFICATE_PROFILE_ARG);
 		final String caName = parameters.get(CA_ARG);
@@ -143,6 +327,39 @@ public class X509StressTestCommand extends ErceCommandBase {
 		} else {
 			postfix = "";
 		}
+
+		final String subjectDn;
+		if(parameters.containsKey(SUBJECTDN_ARG)) {
+			subjectDn = parameters.get(SUBJECTDN_ARG);
+		} else {
+			subjectDn = null;
+		}
+
+		final String subjectAltName;
+		if(parameters.containsKey(SAN_ARG)) {
+			subjectAltName = parameters.get(SAN_ARG);
+		} else {
+			subjectAltName = null;
+		}
+
+		final int historyCount;
+		if(parameters.containsKey(HISTORY_ARG)) {
+			try {
+				historyCount = Integer.valueOf(parameters.get(HISTORY_ARG));
+			} catch (NumberFormatException e) {
+				log.error(HISTORY_ARG + " was not a numeric value");
+				return CommandResult.CLI_FAILURE;
+			}
+			if (historyCount < 0) {
+				log.error(HISTORY_ARG + " must be a non-negative value");
+				return CommandResult.CLI_FAILURE;
+			}
+		} else {
+			historyCount = 0;
+		}
+
+		final boolean revokeAfterIssuance = parameters.containsKey(REVOKE_ARG);
+		final String saveCertsFile = parameters.get(SAVECERTS_ARG);
 
 		// Parse and validate key algorithm
 		String keyAlg = parameters.get(KEYALG_ARG);
@@ -200,18 +417,6 @@ public class X509StressTestCommand extends ErceCommandBase {
 		final String restUrl = new StringBuilder().append("https://").append(getHostname()).append(COMMAND_URL)
 				.toString();
 
-		final int numberOfThreads;
-		try {
-			numberOfThreads = Integer.valueOf(parameters.get(THREADS_ARG));
-		} catch (NumberFormatException e) {
-			log.error(THREADS_ARG + " was not a numeric value");
-			return CommandResult.CLI_FAILURE;
-		}
-		if (numberOfThreads < 1) {
-			log.error(THREADS_ARG + " must be a positive value");
-			return CommandResult.CLI_FAILURE;
-		}
-
 		final int requestPerThread;
 		try {
 			requestPerThread = Integer.valueOf(parameters.get(CERTS_PER_THREAD_ARG));
@@ -223,10 +428,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 			log.error(CERTS_PER_THREAD_ARG + " must be a positive value");
 			return CommandResult.CLI_FAILURE;
 		}
-		
+
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
 
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec);
+		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName, historyCount);
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -238,17 +443,83 @@ public class X509StressTestCommand extends ErceCommandBase {
 		}
 		
 		log.info("\nWeapons free. Fire for effect.");
-		
+
+		// Calculate total payloads per thread considering history certificates
+		final int certsPerEntity = 1 + historyCount;
+		final int totalPayloadsPerThread = requestPerThread * certsPerEntity;
+		final long expectedTotalCerts = (long) numberOfThreads * requestPerThread * certsPerEntity;
+
+		// Reset counters
+		totalIssuanceAttempts = 0;
+		totalSuccessfulIssuances = 0;
+		totalFailedIssuances = 0;
+		totalSuccessfulRevocations = 0;
+		totalFailedRevocations = 0;
+		stopProgressTracking = false;
+
+		// Start progress tracking thread if enabled
+		Thread progressThread = null;
+		if (progressInterval > 0) {
+			progressThread = new Thread(() -> {
+				long lastAttempts = 0;
+				long lastTime = System.currentTimeMillis();
+
+				while (!stopProgressTracking) {
+					try {
+						Thread.sleep(progressInterval * 1000L);
+
+						if (stopProgressTracking) {
+							break;
+						}
+
+						long currentTime = System.currentTimeMillis();
+						long currentAttempts = totalIssuanceAttempts;
+						long intervalAttempts = currentAttempts - lastAttempts;
+						double intervalSeconds = (currentTime - lastTime) / 1000.0;
+						double certsPerSec = intervalSeconds > 0 ? intervalAttempts / intervalSeconds : 0;
+
+						if (revokeAfterIssuance) {
+							System.out.println(String.format("Progress: %d/%d certs (%d successful, %d failed), %d revoked (%d successful, %d failed) - %.2f certs/s",
+									currentAttempts, expectedTotalCerts, totalSuccessfulIssuances, totalFailedIssuances,
+									totalSuccessfulRevocations + totalFailedRevocations, totalSuccessfulRevocations, totalFailedRevocations,
+									certsPerSec));
+						} else {
+							System.out.println(String.format("Progress: %d/%d certs (%d successful, %d failed) - %.2f certs/s",
+									currentAttempts, expectedTotalCerts, totalSuccessfulIssuances, totalFailedIssuances, certsPerSec));
+						}
+
+						lastAttempts = currentAttempts;
+						lastTime = currentTime;
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+				}
+			});
+			progressThread.setDaemon(true);
+			progressThread.start();
+		}
+
 		long startTime = System.currentTimeMillis();
-		List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+		List<CompletableFuture<StressTestResult>> futures = new ArrayList<>();
 		for (int threadNumber = 0; threadNumber < numberOfThreads; ++threadNumber) {
 			final int row = threadNumber;
 			futures.add(CompletableFuture.supplyAsync(() -> {
-				
-				List<String> failures = new ArrayList<>();
-				for (int i = 0; i < requestPerThread; ++i) {
+
+				List<String> issuanceFailures = new ArrayList<>();
+				List<String> revocationFailures = new ArrayList<>();
+				List<CertificateInfo> issuedCertificates = new ArrayList<>();
+				for (int i = 0; i < totalPayloadsPerThread; ++i) {
 					String payload = payloads[row][i];
+					String certSubjectDn = subjectDns[row][i];
+					String cnInfo = extractCNForErrorMessage(certSubjectDn);
 					final HttpPost request = new HttpPost(restUrl);
+
+					// Increment attempt counter
+					synchronized (X509StressTestCommand.this) {
+						totalIssuanceAttempts++;
+					}
+
 					try {
 						request.setEntity(new StringEntity(payload));
 						// connect to EJBCA and send the CSR and get an issued certificate back
@@ -257,68 +528,160 @@ public class X509StressTestCommand extends ErceCommandBase {
 							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 							switch (response.getStatusLine().getStatusCode()) {
 							case 404:
-								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + " - Return code was: 404: " + responseString;
+								String msg404 =  "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Return code was: 404: " + responseString;
 								getLogger().error(msg404);
-								failures.add(msg404);
+								issuanceFailures.add(msg404);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedIssuances++;
+								}
 								break;
 							case 200:
 							case 201:
-								// Do nothing.
+								// Certificate issued successfully
+								try {
+									final JSONParser jsonParser = new JSONParser();
+									final JSONObject actualJsonObject = (JSONObject) jsonParser.parse(responseString);
+									final String base64cert = (String) actualJsonObject.get("certificate");
+									byte[] certBytes = Base64.decode(base64cert.getBytes());
+									X509Certificate certificate = CertTools.getCertfromByteArray(certBytes, X509Certificate.class);
+
+									// Track issued certificate
+									String serialNumber = CertTools.getSerialNumberAsString(certificate);
+									String issuerDn = CertTools.getIssuerDN(certificate);
+									issuedCertificates.add(new CertificateInfo(serialNumber, issuerDn));
+
+									// Increment successful issuance counter
+									synchronized (X509StressTestCommand.this) {
+										totalSuccessfulIssuances++;
+									}
+
+									// Revoke if requested
+									if (revokeAfterIssuance) {
+										revokeCertificate(certificate, issuerDn, serialNumber, backdateRevocation, row, i, cnInfo, revocationFailures);
+									}
+								} catch (ParseException | CertificateParsingException e) {
+									String msgParseError = "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Failed to parse certificate: " + e.getMessage();
+									getLogger().error(msgParseError);
+									issuanceFailures.add(msgParseError);
+									synchronized (X509StressTestCommand.this) {
+										totalFailedIssuances++;
+									}
+								}
 								break;
 							default:
-								String msgOthers = "Thread ID: " + row + ", Iteration: " + i + " - Return code was: " + response.getStatusLine().getStatusCode() + ": "
+								String msgOthers = "Thread ID: " + row + ", Iteration: " + i + cnInfo + " - Return code was: " + response.getStatusLine().getStatusCode() + ": "
 										+ responseString;
 								getLogger().error(msgOthers);
-								failures.add(msgOthers);
+								issuanceFailures.add(msgOthers);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedIssuances++;
+								}
 								break;
 							}
 						} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException
 								| KeyStoreException e) {
 							getLogger().error("Could not perform request: " + e.getMessage());
+							synchronized (X509StressTestCommand.this) {
+								totalFailedIssuances++;
+							}
 						}
 					} catch (IOException e) {
 						getLogger().error("Could not perform request: " + e.getMessage());
+						synchronized (X509StressTestCommand.this) {
+							totalFailedIssuances++;
+						}
 					}
 				}
-				return failures;
+				return new StressTestResult(issuanceFailures, revocationFailures, issuedCertificates);
 			}));
 
 		}
 		CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(CompletableFuture<?>[]::new));
-		List<String> results = new ArrayList<>();
+		List<String> issuanceResults = new ArrayList<>();
+		List<String> revocationResults = new ArrayList<>();
+		List<CertificateInfo> allIssuedCertificates = new ArrayList<>();
 		allFutures.thenRun(() -> {
-			for (CompletableFuture<List<String>> completedFuture : futures) {
+			for (CompletableFuture<StressTestResult> completedFuture : futures) {
 				try {
-					results.addAll(completedFuture.get());
+					StressTestResult result = completedFuture.get();
+					issuanceResults.addAll(result.issuanceFailures);
+					revocationResults.addAll(result.revocationFailures);
+					allIssuedCertificates.addAll(result.issuedCertificates);
 				} catch (ExecutionException | InterruptedException e) {
 					log.error("Future could not execute.", e);
 				}
 			}
 		});
-		
+
 		allFutures.join();
 		long endTime = System.currentTimeMillis();
+
+		// Stop progress tracking
+		stopProgressTracking = true;
+
 		log.info("Fire mission complete. Weapons hold.\n");
 
-		if(!results.isEmpty()) {
+		if(!issuanceResults.isEmpty()) {
 			log.info("The following threads did not return a certificate:");
-			for(String error : results) {
+			for(String error : issuanceResults) {
 				log.info(error);
 			}
-			
 		}
-		
-		long totalCerts = numberOfThreads*requestPerThread;
-		long success = totalCerts-results.size();
-		double executionTime =  (endTime - startTime)/1000;
+
+		if(!revocationResults.isEmpty()) {
+			log.info("\nThe following certificates failed to revoke:");
+			for(String error : revocationResults) {
+				log.info(error);
+			}
+		}
+
+		final int certsPerEntityFinal = 1 + historyCount;
+		long totalCerts = numberOfThreads * requestPerThread * certsPerEntityFinal;
+		long totalEntities = numberOfThreads * requestPerThread;
+		long successfulIssuances = totalCerts - issuanceResults.size();
+		long duration = endTime - startTime;
+		double executionTime =  duration / 1000.0;
 		log.info("Total execution time: " + executionTime + " seconds.");
-		if(success > 0) {
-			double averageTime = executionTime / success;
+		if(successfulIssuances > 0) {
+			double averageTime = executionTime / successfulIssuances;
 			log.info("Average issuance time: " + averageTime + " seconds.");
 			log.info("Throughput: " + 1 / averageTime + " certificates issued per second.");
 		}
-		log.info((success) + " certificates were successfully issued, with " + results.size() + " failures.");
-		
+		log.info((successfulIssuances) + " certificates were successfully issued, with " + issuanceResults.size() + " issuance failures.");
+		long successfulRevocations = 0;
+		if(revokeAfterIssuance) {
+			successfulRevocations = successfulIssuances - revocationResults.size();
+			log.info((successfulRevocations) + " certificates were successfully revoked, with " + revocationResults.size() + " revocation failures.");
+		}
+		if(historyCount > 0) {
+			log.info("Total end entities: " + totalEntities + " (" + certsPerEntityFinal + " certificate(s) per entity).");
+		}
+
+		// Save certificates if requested
+		if (!StringUtils.isBlank(saveCertsFile) && !allIssuedCertificates.isEmpty()) {
+			saveCertificatesToFile(allIssuedCertificates, saveCertsFile);
+		}
+
+		// Write results to file if requested
+		if (outputFormat.equals("csv")) {
+			try {
+				writeIssuanceResultsToCsv(outputFile, totalCerts, successfulIssuances, issuanceResults.size(),
+						successfulRevocations, revocationResults.size(), duration, revokeAfterIssuance);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write CSV results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		} else if (outputFormat.equals("markdown")) {
+			try {
+				writeIssuanceResultsToMarkdown(outputFile, totalCerts, successfulIssuances, issuanceResults.size(),
+						successfulRevocations, revocationResults.size(), duration, revokeAfterIssuance);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write Markdown results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		}
 
 		return CommandResult.SUCCESS;
 	}
@@ -360,46 +723,89 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	@SuppressWarnings("unchecked")
 	private void generatePayloads(final int numberOfThreads, final int requestPerThread, final String caName,
-			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec) {
-		log.info("Will submit a total of " + requestPerThread * numberOfThreads + " CSRs, using " + numberOfThreads
+			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec, final String customSubjectDn, final String customSubjectAltName, final int historyCount) {
+		// Calculate total certificates: base certificates + additional history certificates
+		final int certsPerEntity = 1 + historyCount;
+		final int totalCertsPerThread = requestPerThread * certsPerEntity;
+
+		log.info("Will submit a total of " + (requestPerThread * numberOfThreads * certsPerEntity) + " CSRs, using " + numberOfThreads
 				+ " threads.");
+		if (historyCount > 0) {
+			log.info("Certificate history testing enabled: " + certsPerEntity + " certificate(s) per end entity (" + historyCount + " additional).");
+		}
 		log.info("Pre generating CSR payloads...");
 		final String password = "foo123";
-		this.payloads = new String[numberOfThreads][requestPerThread];
+		this.payloads = new String[numberOfThreads][totalCertsPerThread];
+		this.subjectDns = new String[numberOfThreads][totalCertsPerThread];
 		final int increment = numberOfThreads / 10;
 		int counter = 0;
 		KeyPair keyPair = null;	
 		try {
+			int payloadIndex = 0;
 			for (int i = 0; i < numberOfThreads; ++i) {
+				payloadIndex = 0;
 				for (int j = 0; j < requestPerThread; ++j) {
 					final String endEntityName = prefix + "_" + i + "_" + j + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
-					final String subjectDn = "CN=" + endEntityName;
-					if (keyPair == null || !singleKey) {
-						try {
-							keyPair = KeyTools.genKeys(keySpec, keyAlg);
-						} catch (InvalidAlgorithmParameterException e) {
-							throw new IllegalStateException("Could not generate key pairs.", e);
+					final String subjectDn;
+					final String subjectAltName;
+
+					if (customSubjectAltName != null) {
+						// Use custom SAN and apply prefix/postfix to dnsName if present
+						subjectAltName = applyPrefixPostfixToSAN(customSubjectAltName, prefix, postfix, i, j);
+
+						if (customSubjectDn != null) {
+							// Both SAN and DN provided: use custom DN with prefix/postfix
+							subjectDn = applyPrefixPostfixToCN(customSubjectDn, prefix, postfix, i, j);
+						} else {
+							// Only SAN provided: use empty subject DN
+							subjectDn = "";
+						}
+					} else {
+						// No SAN provided
+						subjectAltName = null;
+
+						if (customSubjectDn != null) {
+							// Only DN provided: use custom DN with prefix/postfix
+							subjectDn = applyPrefixPostfixToCN(customSubjectDn, prefix, postfix, i, j);
+						} else {
+							// Neither SAN nor DN provided: default behavior with CN
+							subjectDn = "CN=" + endEntityName;
 						}
 					}
-					final PKCS10CertificationRequest pkcs10 = generateCertificateRequest(
-							DnComponents.stringToBcX500Name(subjectDn), keyPair, keyAlg);
-					final StringWriter pemout = new StringWriter();
-					JcaPEMWriter pm = new JcaPEMWriter(pemout);
-					pm.writeObject(pkcs10);
-					pm.close();
-					final String p10pem = pemout.toString();
-					JSONObject param = new JSONObject();
-					param.put("certificate_request", p10pem);
-					param.put("certificate_profile_name", certificateProfileName);
-					param.put("end_entity_profile_name", endEntityProfileName);
-					param.put("certificate_authority_name", caName);
-					param.put("username", endEntityName);
-					param.put("password", password);
-					param.put("include_chain", "false");
-					final StringWriter out = new StringWriter();
-					param.writeJSONString(out);
-					final String payload = out.toString();
-					this.payloads[i][j] = payload;
+
+					// Generate certificates for this end entity (1 base + historyCount additional)
+					for (int h = 0; h < certsPerEntity; ++h) {
+						if (keyPair == null || !singleKey) {
+							try {
+								keyPair = KeyTools.genKeys(keySpec, keyAlg);
+							} catch (InvalidAlgorithmParameterException e) {
+								throw new IllegalStateException("Could not generate key pairs.", e);
+							}
+						}
+						// Handle empty subject DN when only SAN is provided
+						final X500Name userDN = StringUtils.isBlank(subjectDn) ? new X500Name("") : DnComponents.stringToBcX500Name(subjectDn);
+						final PKCS10CertificationRequest pkcs10 = generateCertificateRequest(
+								userDN, keyPair, keyAlg, subjectAltName);
+						final StringWriter pemout = new StringWriter();
+						JcaPEMWriter pm = new JcaPEMWriter(pemout);
+						pm.writeObject(pkcs10);
+						pm.close();
+						final String p10pem = pemout.toString();
+						JSONObject param = new JSONObject();
+						param.put("certificate_request", p10pem);
+						param.put("certificate_profile_name", certificateProfileName);
+						param.put("end_entity_profile_name", endEntityProfileName);
+						param.put("certificate_authority_name", caName);
+						param.put("username", endEntityName);
+						param.put("password", password);
+						param.put("include_chain", "false");
+						final StringWriter out = new StringWriter();
+						param.writeJSONString(out);
+						final String payload = out.toString();
+						this.payloads[i][payloadIndex] = payload;
+						this.subjectDns[i][payloadIndex] = subjectDn;
+						payloadIndex++;
+					}
 				}
 				if (i == counter) {
 					log.info(((double) i) / ((double) numberOfThreads) * 100 + " % done.");
@@ -412,7 +818,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	}
 
-	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg) throws IOException {
+	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg, final String subjectAltName) throws IOException {
 		try {
 			final PublicKey publicKey = keyPair.getPublic();
 			final String sigAlg;
@@ -441,12 +847,602 @@ public class X509StressTestCommand extends ErceCommandBase {
 				}
 			}
 
+			// Add SAN extension if provided
+			ExtensionsGenerator extensionsGenerator = new ExtensionsGenerator();
+			if (!StringUtils.isBlank(subjectAltName)) {
+				GeneralNames san = DnComponents.getGeneralNamesFromAltName(subjectAltName);
+				extensionsGenerator.addExtension(Extension.subjectAlternativeName, false, san);
+			}
+
+			DERSet attributes;
+			if (!extensionsGenerator.isEmpty()) {
+				final Extensions extensions = extensionsGenerator.generate();
+				// Add the extension(s) to the PKCS#10 request as a pkcs_9_at_extensionRequest
+				ASN1EncodableVector extensionattr = new ASN1EncodableVector();
+				extensionattr.add(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+				extensionattr.add(new DERSet(extensions));
+				// Complete the Attribute section of the request, the set (Attributes) contains one sequence (Attribute)
+				ASN1EncodableVector v = new ASN1EncodableVector();
+				v.add(new DERSequence(extensionattr));
+				attributes = new DERSet(v);
+			} else {
+				attributes = new DERSet();
+			}
+
 			return CertTools.genPKCS10CertificationRequest(sigAlg, userDN,
-					publicKey, null, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
+					publicKey, attributes, keyPair.getPrivate(), BouncyCastleProvider.PROVIDER_NAME);
 		} catch (OperatorCreationException e) {
 			throw new IllegalStateException("Unable to generate CSR.", e);
 		}
 
+	}
+
+	private String applyPrefixPostfixToCN(final String subjectDn, final String prefix, final String postfix, final int threadId, final int certId) {
+		// Parse the subject DN to find CN attribute
+		String[] parts = subjectDn.split(",");
+		StringBuilder result = new StringBuilder();
+
+		for (int i = 0; i < parts.length; i++) {
+			String part = parts[i].trim();
+			if (part.toUpperCase().startsWith("CN=")) {
+				// Extract the CN value
+				String cnValue = part.substring(3).trim();
+				// Apply prefix and postfix
+				String modifiedCN = "CN=" + prefix + "_" + cnValue + "_" + threadId + "_" + certId + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
+				result.append(modifiedCN);
+			} else {
+				result.append(part);
+			}
+
+			if (i < parts.length - 1) {
+				result.append(",");
+			}
+		}
+
+		return result.toString();
+	}
+
+	private String applyPrefixPostfixToSAN(final String subjectAltName, final String prefix, final String postfix, final int threadId, final int certId) {
+		// Parse the SAN to find dnsName attributes and apply prefix/postfix
+		String[] parts = subjectAltName.split(",");
+		StringBuilder result = new StringBuilder();
+
+		for (int i = 0; i < parts.length; i++) {
+			String part = parts[i].trim();
+			if (part.toLowerCase().startsWith("dnsname=")) {
+				// Extract the dnsName value
+				String dnsValue = part.substring(8).trim();
+				// Apply prefix and postfix to DNS name
+				String modifiedDNS = "dnsName=" + prefix + "_" + dnsValue + "_" + threadId + "_" + certId + (StringUtils.isEmpty(postfix) ? "" : "_" + postfix);
+				result.append(modifiedDNS);
+			} else {
+				// Keep other SAN types unchanged (ipAddress, email, etc.)
+				result.append(part);
+			}
+
+			if (i < parts.length - 1) {
+				result.append(",");
+			}
+		}
+
+		return result.toString();
+	}
+
+	private String extractCNForErrorMessage(final String subjectDn) {
+		// Extract CN from subject DN for error messages
+		if (StringUtils.isBlank(subjectDn)) {
+			return "";
+		}
+
+		String[] parts = subjectDn.split(",");
+		for (String part : parts) {
+			String trimmedPart = part.trim();
+			if (trimmedPart.toUpperCase().startsWith("CN=")) {
+				// Extract the CN value and return in the format ", CN=value"
+				return ", " + trimmedPart;
+			}
+		}
+
+		// No CN found, return empty string
+		return "";
+	}
+
+	private void revokeCertificate(X509Certificate certificate, String issuerDn, String serialNumber, boolean backdateRevocation, int threadId, int iteration, String cnInfo, List<String> failures) {
+		try {
+			// Escape invalid URL characters
+			issuerDn = escapeInvalidUrlCharacters(issuerDn);
+
+			// Build revocation URL
+			StringBuilder urlBuilder = new StringBuilder()
+					.append("https://")
+					.append(getHostname())
+					.append(REVOKE_URL_PREFIX)
+					.append(issuerDn)
+					.append("/")
+					.append(serialNumber)
+					.append(REVOKE_URL_SUFFIX)
+					.append("?reason=")
+					.append(REVOCATION_REASON);
+
+			// Only add date parameter if backdating is requested
+			if (backdateRevocation) {
+				// Use the certificate's notBefore date for backdated revocation
+				OffsetDateTime date = certificate.getNotBefore().toInstant().atOffset(java.time.ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS);
+				String revocationDate = escapeInvalidUrlCharacters(date.toString());
+				urlBuilder.append("&date=").append(revocationDate);
+			}
+
+			final String revokeUrl = urlBuilder.toString();
+
+			// Create revocation request
+			JSONObject param = new JSONObject();
+			final StringWriter out = new StringWriter();
+			param.writeJSONString(out);
+			final String payload = out.toString();
+
+			final HttpPut revokeRequest = new HttpPut(revokeUrl);
+			revokeRequest.setEntity(new StringEntity(payload));
+
+			try (CloseableHttpResponse revokeResponse = performRESTAPIRequest(getSslContext(), revokeRequest)) {
+				final InputStream entityContent = revokeResponse.getEntity().getContent();
+				String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
+				int statusCode = revokeResponse.getStatusLine().getStatusCode();
+
+				if (statusCode != 200 && statusCode != 201) {
+					String msgRevokeFailed = "Thread ID: " + threadId + ", Iteration: " + iteration + cnInfo
+							+ " - Revocation failed with code " + statusCode + ": " + responseString;
+					getLogger().error(msgRevokeFailed);
+					failures.add(msgRevokeFailed);
+					synchronized (X509StressTestCommand.this) {
+						totalFailedRevocations++;
+					}
+				} else {
+					synchronized (X509StressTestCommand.this) {
+						totalSuccessfulRevocations++;
+					}
+				}
+			}
+		} catch (KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException | KeyStoreException | IOException e) {
+			String msgRevokeError = "Thread ID: " + threadId + ", Iteration: " + iteration + cnInfo
+					+ " - Revocation request failed: " + e.getMessage();
+			getLogger().error(msgRevokeError);
+			failures.add(msgRevokeError);
+			synchronized (X509StressTestCommand.this) {
+				totalFailedRevocations++;
+			}
+		}
+	}
+
+	private String escapeInvalidUrlCharacters(final String urlElement) {
+		return urlElement.replace(" ", "%20").replace("+", "%2b");
+	}
+
+	/**
+	 * Save issued certificates to file
+	 */
+	private void saveCertificatesToFile(List<CertificateInfo> certificates, String filename) {
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			for (CertificateInfo cert : certificates) {
+				writer.write(cert.toString());
+				writer.newLine();
+			}
+			log.info("Saved " + certificates.size() + " certificate(s) to file: " + filename);
+		} catch (IOException e) {
+			log.error("Failed to save certificates to file " + filename + ": " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Load certificates from file
+	 */
+	private List<CertificateInfo> loadCertificatesFromFile(String filename) {
+		List<CertificateInfo> certificates = new ArrayList<>();
+		try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
+			String line;
+			while ((line = reader.readLine()) != null) {
+				line = line.trim();
+				if (!line.isEmpty() && !line.startsWith("#")) {
+					CertificateInfo cert = CertificateInfo.fromString(line);
+					if (cert != null) {
+						certificates.add(cert);
+					} else {
+						log.warn("Skipping invalid line in " + filename + ": " + line);
+					}
+				}
+			}
+			log.info("Loaded " + certificates.size() + " certificate(s) from file: " + filename);
+		} catch (IOException e) {
+			log.error("Failed to load certificates from file " + filename + ": " + e.getMessage());
+		}
+		return certificates;
+	}
+
+	/**
+	 * Write issuance test results to CSV file
+	 */
+	private void writeIssuanceResultsToCsv(String filename, long totalCerts, long successfulIssuances, long issuanceFailures,
+			long successfulRevocations, long revocationFailures, long duration, boolean includeRevocation) throws IOException {
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			// Write header
+			if (includeRevocation) {
+				writer.write("Test Duration (s),Total Certificates,Successful Issuances,Failed Issuances,Throughput (certs/s),Successful Revocations,Failed Revocations,Timestamp");
+			} else {
+				writer.write("Test Duration (s),Total Certificates,Successful Issuances,Failed Issuances,Throughput (certs/s),Timestamp");
+			}
+			writer.newLine();
+
+			// Calculate throughput
+			double executionTime = duration / 1000.0;
+			double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
+
+			// Write data row
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+			if (includeRevocation) {
+				writer.write(String.format("%.2f,%d,%d,%d,%.2f,%d,%d,%s",
+						executionTime, totalCerts, successfulIssuances, issuanceFailures, throughput,
+						successfulRevocations, revocationFailures, timestamp));
+			} else {
+				writer.write(String.format("%.2f,%d,%d,%d,%.2f,%s",
+						executionTime, totalCerts, successfulIssuances, issuanceFailures, throughput, timestamp));
+			}
+			writer.newLine();
+		}
+	}
+
+	/**
+	 * Write issuance test results to Markdown file
+	 */
+	private void writeIssuanceResultsToMarkdown(String filename, long totalCerts, long successfulIssuances, long issuanceFailures,
+			long successfulRevocations, long revocationFailures, long duration, boolean includeRevocation) throws IOException {
+		double executionTime = duration / 1000.0;
+		double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
+		String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			writer.write("# X509 Stress Test Results");
+			writer.newLine();
+			writer.newLine();
+			writer.write("**Generated:** " + timestamp);
+			writer.newLine();
+			writer.newLine();
+
+			// Test Configuration section
+			writer.write("## Test Configuration");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Test Duration | %.2f seconds |", executionTime));
+			writer.newLine();
+			writer.newLine();
+
+			// Issuance Metrics table
+			writer.write("## Issuance Metrics");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Total Certificates | %,d |", totalCerts));
+			writer.newLine();
+			writer.write(String.format("| Successful Issuances | %,d |", successfulIssuances));
+			writer.newLine();
+			writer.write(String.format("| Failed Issuances | %,d |", issuanceFailures));
+			writer.newLine();
+			writer.write(String.format("| Throughput | %.2f certs/s |", throughput));
+			writer.newLine();
+			writer.newLine();
+
+			// Revocation Metrics table (if revocation was performed)
+			if (includeRevocation) {
+				writer.write("## Revocation Metrics");
+				writer.newLine();
+				writer.newLine();
+				writer.write("| Metric | Value |");
+				writer.newLine();
+				writer.write("|--------|-------|");
+				writer.newLine();
+				writer.write(String.format("| Successful Revocations | %,d |", successfulRevocations));
+				writer.newLine();
+				writer.write(String.format("| Failed Revocations | %,d |", revocationFailures));
+				writer.newLine();
+				writer.newLine();
+			}
+		}
+	}
+
+	/**
+	 * Write bulk revocation test results to CSV file
+	 */
+	private void writeRevocationResultsToCsv(String filename, long totalCerts, long successfulRevocations,
+			long revocationFailures, long duration) throws IOException {
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			// Write header
+			writer.write("Test Duration (s),Total Certificates,Successful Revocations,Failed Revocations,Throughput (certs/s),Timestamp");
+			writer.newLine();
+
+			// Calculate throughput
+			double executionTime = duration / 1000.0;
+			double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
+
+			// Write data row
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+			writer.write(String.format("%.2f,%d,%d,%d,%.2f,%s",
+					executionTime, totalCerts, successfulRevocations, revocationFailures, throughput, timestamp));
+			writer.newLine();
+		}
+	}
+
+	/**
+	 * Write bulk revocation test results to Markdown file
+	 */
+	private void writeRevocationResultsToMarkdown(String filename, long totalCerts, long successfulRevocations,
+			long revocationFailures, long duration) throws IOException {
+		double executionTime = duration / 1000.0;
+		double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
+		String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+			writer.write("# X509 Bulk Revocation Test Results");
+			writer.newLine();
+			writer.newLine();
+			writer.write("**Generated:** " + timestamp);
+			writer.newLine();
+			writer.newLine();
+
+			// Test Configuration section
+			writer.write("## Test Configuration");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Test Duration | %.2f seconds |", executionTime));
+			writer.newLine();
+			writer.newLine();
+
+			// Revocation Metrics table
+			writer.write("## Revocation Metrics");
+			writer.newLine();
+			writer.newLine();
+			writer.write("| Metric | Value |");
+			writer.newLine();
+			writer.write("|--------|-------|");
+			writer.newLine();
+			writer.write(String.format("| Total Certificates | %,d |", totalCerts));
+			writer.newLine();
+			writer.write(String.format("| Successful Revocations | %,d |", successfulRevocations));
+			writer.newLine();
+			writer.write(String.format("| Failed Revocations | %,d |", revocationFailures));
+			writer.newLine();
+			writer.write(String.format("| Throughput | %.2f certs/s |", throughput));
+			writer.newLine();
+			writer.newLine();
+		}
+	}
+
+	/**
+	 * Perform bulk revocation of certificates from file
+	 */
+	private CommandResult performBulkRevocation(String filename, boolean backdateRevocation, int numberOfThreads,
+			String outputFormat, String outputFile, int progressInterval) {
+		log.info("Starting bulk revocation from file: " + filename);
+
+		// Load certificates from file
+		List<CertificateInfo> certificates = loadCertificatesFromFile(filename);
+		if (certificates.isEmpty()) {
+			log.error("No certificates found in file: " + filename);
+			return CommandResult.CLI_FAILURE;
+		}
+
+		log.info("Loaded " + certificates.size() + " certificate(s) for revocation");
+		log.info("Using " + numberOfThreads + " thread(s) for parallel revocation");
+
+		// Split certificates across threads
+		int certsPerThread = (int) Math.ceil((double) certificates.size() / numberOfThreads);
+		final long expectedTotalRevocations = certificates.size();
+
+		// Reset counters
+		totalIssuanceAttempts = 0;
+		totalSuccessfulIssuances = 0;
+		totalFailedIssuances = 0;
+		totalSuccessfulRevocations = 0;
+		totalFailedRevocations = 0;
+		stopProgressTracking = false;
+
+		// Start progress tracking thread if enabled
+		Thread progressThread = null;
+		if (progressInterval > 0) {
+			progressThread = new Thread(() -> {
+				long lastRevoked = 0;
+				long lastTime = System.currentTimeMillis();
+
+				while (!stopProgressTracking) {
+					try {
+						Thread.sleep(progressInterval * 1000L);
+
+						if (stopProgressTracking) {
+							break;
+						}
+
+						long currentTime = System.currentTimeMillis();
+						long currentRevoked = totalSuccessfulRevocations + totalFailedRevocations;
+						long intervalRevoked = currentRevoked - lastRevoked;
+						double intervalSeconds = (currentTime - lastTime) / 1000.0;
+						double certsPerSec = intervalSeconds > 0 ? intervalRevoked / intervalSeconds : 0;
+
+						System.out.println(String.format("Progress: %d/%d certs revoked (%d successful, %d failed) - %.2f certs/s",
+								currentRevoked, expectedTotalRevocations, totalSuccessfulRevocations, totalFailedRevocations, certsPerSec));
+
+						lastRevoked = currentRevoked;
+						lastTime = currentTime;
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+				}
+			});
+			progressThread.setDaemon(true);
+			progressThread.start();
+		}
+
+		log.info("\nWeapons free. Fire for effect (revocation only).");
+		long startTime = System.currentTimeMillis();
+
+		List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+		for (int threadNumber = 0; threadNumber < numberOfThreads; threadNumber++) {
+			final int startIdx = threadNumber * certsPerThread;
+			final int endIdx = Math.min(startIdx + certsPerThread, certificates.size());
+
+			if (startIdx >= certificates.size()) {
+				break; // No more certificates to process
+			}
+
+			final List<CertificateInfo> threadCerts = certificates.subList(startIdx, endIdx);
+			final int threadId = threadNumber;
+
+			futures.add(CompletableFuture.supplyAsync(() -> {
+				List<String> revocationFailures = new ArrayList<>();
+
+				for (int i = 0; i < threadCerts.size(); i++) {
+					CertificateInfo cert = threadCerts.get(i);
+					String issuerDnEscaped = escapeInvalidUrlCharacters(cert.issuerDn);
+
+					// Build revocation URL
+					StringBuilder urlBuilder = new StringBuilder()
+						.append("https://").append(getHostname())
+						.append("/ejbca/ejbca-rest-api/v1/certificate/")
+						.append(issuerDnEscaped).append("/")
+						.append(cert.serialNumber).append("/revoke")
+						.append("?reason=UNSPECIFIED");
+
+					// Add date parameter only if backdating is requested
+					if (backdateRevocation) {
+						// For bulk revocation, we don't have the certificate's notBefore date
+						// So we'll use current time if backdating is requested (user should handle this carefully)
+						OffsetDateTime date = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+						String dateStr = escapeInvalidUrlCharacters(date.toString());
+						urlBuilder.append("&date=").append(dateStr);
+					}
+
+					String restUrl = urlBuilder.toString();
+
+					try {
+						JSONObject param = new JSONObject();
+						final StringWriter out = new StringWriter();
+						param.writeJSONString(out);
+						final String payload = out.toString();
+
+						final HttpPut request = new HttpPut(restUrl);
+						request.setEntity(new StringEntity(payload));
+
+						try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+							final InputStream entityContent = response.getEntity().getContent();
+							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
+
+							int statusCode = response.getStatusLine().getStatusCode();
+							if (statusCode != 200 && statusCode != 201) {
+								String errorMsg = "Thread ID: " + threadId + ", Index: " + i +
+									", SN=" + cert.serialNumber + " - Revocation failed with code " +
+									statusCode + ": " + responseString;
+								revocationFailures.add(errorMsg);
+								log.error(errorMsg);
+								synchronized (X509StressTestCommand.this) {
+									totalFailedRevocations++;
+								}
+							} else {
+								synchronized (X509StressTestCommand.this) {
+									totalSuccessfulRevocations++;
+								}
+							}
+						}
+					} catch (Exception e) {
+						String errorMsg = "Thread ID: " + threadId + ", Index: " + i +
+							", SN=" + cert.serialNumber + " - Revocation failed with exception: " + e.getMessage();
+						revocationFailures.add(errorMsg);
+						log.error(errorMsg);
+						synchronized (X509StressTestCommand.this) {
+							totalFailedRevocations++;
+						}
+					}
+				}
+
+				return revocationFailures;
+			}));
+		}
+
+		// Wait for all threads to complete
+		CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(CompletableFuture<?>[]::new));
+		List<String> allRevocationFailures = new ArrayList<>();
+
+		allFutures.thenRun(() -> {
+			for (CompletableFuture<List<String>> completedFuture : futures) {
+				try {
+					List<String> failures = completedFuture.get();
+					allRevocationFailures.addAll(failures);
+				} catch (ExecutionException | InterruptedException e) {
+					log.error("Future could not execute.", e);
+				}
+			}
+		});
+
+		allFutures.join();
+		long endTime = System.currentTimeMillis();
+
+		// Stop progress tracking
+		stopProgressTracking = true;
+
+		log.info("Fire mission complete. Weapons hold.\n");
+
+		// Print failures if any
+		if (!allRevocationFailures.isEmpty()) {
+			log.info("The following certificates failed to revoke:");
+			for (String error : allRevocationFailures) {
+				log.info(error);
+			}
+		}
+
+		// Print statistics
+		long totalCerts = certificates.size();
+		long successfulRevocations = totalCerts - allRevocationFailures.size();
+		long duration = endTime - startTime;
+		double executionTime = duration / 1000.0;
+
+		log.info("Total execution time: " + executionTime + " seconds.");
+		if (successfulRevocations > 0) {
+			double averageTime = executionTime / successfulRevocations;
+			log.info("Average revocation time: " + averageTime + " seconds.");
+			log.info("Throughput: " + (1 / averageTime) + " certificates revoked per second.");
+		}
+		log.info(successfulRevocations + " certificates were successfully revoked, with " +
+			allRevocationFailures.size() + " revocation failures.");
+
+		// Write results to file if requested
+		if (outputFormat.equals("csv")) {
+			try {
+				writeRevocationResultsToCsv(outputFile, totalCerts, successfulRevocations,
+						allRevocationFailures.size(), duration);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write CSV results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		} else if (outputFormat.equals("markdown")) {
+			try {
+				writeRevocationResultsToMarkdown(outputFile, totalCerts, successfulRevocations,
+						allRevocationFailures.size(), duration);
+				log.info("Results saved to " + outputFile);
+			} catch (IOException e) {
+				log.error("Failed to write Markdown results to file: " + e.getMessage());
+				return CommandResult.CLI_FAILURE;
+			}
+		}
+
+		return CommandResult.SUCCESS;
 	}
 
 
