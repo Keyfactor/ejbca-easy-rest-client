@@ -30,10 +30,12 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPublicKey;
+import java.text.SimpleDateFormat;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -1074,7 +1076,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 			double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
 
 			// Write data row
-			String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 			if (includeRevocation) {
 				writer.write(String.format("%.2f,%d,%d,%d,%.2f,%d,%d,%s",
 						executionTime, totalCerts, successfulIssuances, issuanceFailures, throughput,
@@ -1094,7 +1096,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 			long successfulRevocations, long revocationFailures, long duration, boolean includeRevocation) throws IOException {
 		double executionTime = duration / 1000.0;
 		double throughput = executionTime > 0 ? successfulIssuances / executionTime : 0;
-		String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+		String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
 			writer.write("# X509 Stress Test Results");
@@ -1167,7 +1169,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 			double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
 
 			// Write data row
-			String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 			writer.write(String.format("%.2f,%d,%d,%d,%.2f,%s",
 					executionTime, totalCerts, successfulRevocations, revocationFailures, throughput, timestamp));
 			writer.newLine();
@@ -1181,7 +1183,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 			long revocationFailures, long duration) throws IOException {
 		double executionTime = duration / 1000.0;
 		double throughput = executionTime > 0 ? successfulRevocations / executionTime : 0;
-		String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+		String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
 			writer.write("# X509 Bulk Revocation Test Results");

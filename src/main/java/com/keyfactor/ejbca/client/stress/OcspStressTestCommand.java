@@ -15,17 +15,25 @@ package com.keyfactor.ejbca.client.stress;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.KeyStore;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,8 +63,13 @@ import org.bouncycastle.cert.ocsp.RevokedStatus;
 import org.bouncycastle.cert.ocsp.SingleResp;
 import org.bouncycastle.cert.ocsp.UnknownStatus;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.ContentVerifierProvider;
 import org.bouncycastle.operator.DigestCalculatorProvider;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
+import org.bouncycastle.util.encoders.Base64;
 import org.ejbca.ui.cli.infrastructure.command.CommandResult;
 import org.ejbca.ui.cli.infrastructure.parameter.Parameter;
 import org.ejbca.ui.cli.infrastructure.parameter.ParameterContainer;
@@ -66,8 +79,6 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 
 import com.keyfactor.ejbca.client.ErceCommandBase;
 import com.keyfactor.util.CertTools;
-
-import org.ejbca.ui.cli.infrastructure.parameter.ParameterHandler;
 
 /**
  * A CLI command for performing OCSP stress testing.
@@ -97,10 +108,6 @@ public class OcspStressTestCommand extends ErceCommandBase {
     private static final String OUTPUT_FILE_ARG = "--outputfile";
     private static final String PROGRESS_INTERVAL_ARG = "--progressinterval";
 
-    // Base class parameter names (to override them as optional)
-    private static final String AUTH_KEYSTORE_ARG = "--authkeystore";
-    private static final String HOSTNAME_ARG = "--hostname";
-
     // Volatile flag to signal threads to stop
     private volatile boolean stopRequested = false;
 
@@ -111,7 +118,6 @@ public class OcspStressTestCommand extends ErceCommandBase {
 
     {
         // Register OCSP-specific parameters
-        // Note: --authkeystore and --hostname are inherited from base class but automatically injected
         registerParameter(new Parameter(OCSP_URL_ARG, "OCSP URL", MandatoryMode.MANDATORY, StandaloneMode.FORBID,
                 ParameterMode.ARGUMENT, "OCSP responder URL, e.g. http://myhost:8080/ejbca/publicweb/status/ocsp"));
         registerParameter(new Parameter(OCSP_SN_FILE_ARG, "Serial number file", MandatoryMode.MANDATORY,
@@ -159,12 +165,10 @@ public class OcspStressTestCommand extends ErceCommandBase {
      * Inner class to hold certificate information
      */
     private static class CertificateInfo {
-        String serialNumber;
-        String issuerDn;
+        private String serialNumber;
 
-        CertificateInfo(String serialNumber, String issuerDn) {
+        CertificateInfo(String serialNumber) {
             this.serialNumber = serialNumber;
-            this.issuerDn = issuerDn;
         }
     }
 
@@ -194,50 +198,6 @@ public class OcspStressTestCommand extends ErceCommandBase {
             this.statusCounts = new HashMap<>();
             this.responseTimes = new ArrayList<>();
         }
-    }
-
-    /**
-     * Override base class execute to automatically inject dummy authentication parameters
-     * since OCSP stress testing doesn't require keystore authentication
-     */
-    @Override
-    public CommandResult execute(String... arguments) {
-        // Inject dummy values for base class mandatory parameters if not provided
-        List<String> modifiedArgs = new ArrayList<>();
-        boolean hasAuthKeystore = false;
-        boolean hasHostname = false;
-
-        for (String arg : arguments) {
-            modifiedArgs.add(arg);
-            if (arg.equals(AUTH_KEYSTORE_ARG)) {
-                hasAuthKeystore = true;
-            } else if (arg.equals(HOSTNAME_ARG)) {
-                hasHostname = true;
-            }
-        }
-
-        // Add dummy values if not provided by user
-        if (!hasAuthKeystore) {
-            modifiedArgs.add(AUTH_KEYSTORE_ARG);
-            modifiedArgs.add("/dev/null");
-        }
-        if (!hasHostname) {
-            modifiedArgs.add(HOSTNAME_ARG);
-            modifiedArgs.add("localhost:8080");
-        }
-
-        ParameterContainer parameters = parameterHandler.parseParameters(
-            modifiedArgs.toArray(new String[0])
-        );
-        if (parameters == null) {
-            return CommandResult.CLI_FAILURE;
-        }
-        if (parameters.containsKey(ParameterHandler.HELP_KEY)) {
-            printManPage();
-            return CommandResult.SUCCESS;
-        }
-        // Skip the base class's keystore password validation - not needed for OCSP
-        return execute(parameters);
     }
 
     @Override
@@ -372,18 +332,18 @@ public class OcspStressTestCommand extends ErceCommandBase {
             log.error("Failed to load CA certificate from file: " + caCertFile);
             return CommandResult.CLI_FAILURE;
         }
-        log.info("Loaded CA certificate: " + caCert.getSubjectDN().toString());
+        log.info("Loaded CA certificate: " + caCert.getSubjectX500Principal().getName().toString());
 
         // Load signing credentials if provided
-        final java.security.PrivateKey signingKey;
+        final PrivateKey signingKey;
         final X509Certificate[] signingCertChain;
         if (ocspAuthStore != null && ocspAuthPasswd != null) {
             try {
                 Object[] credentials = loadSigningCredentials(ocspAuthStore, ocspAuthPasswd);
-                signingKey = (java.security.PrivateKey) credentials[0];
+                signingKey = (PrivateKey) credentials[0];
                 signingCertChain = (X509Certificate[]) credentials[1];
                 log.info("Loaded OCSP request signing credentials from: " + ocspAuthStore);
-                log.info("Signing certificate: " + signingCertChain[0].getSubjectDN().toString());
+                log.info("Signing certificate: " + signingCertChain[0].getSubjectX500Principal().getName().toString());
             } catch (Exception e) {
                 log.error("Failed to load signing credentials: " + e.getMessage());
                 return CommandResult.CLI_FAILURE;
@@ -447,7 +407,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
 
         // Add shutdown hook to gracefully handle Ctrl+C
         Thread shutdownHook = new Thread(() -> {
-            System.out.println("\nShutdown signal received, stopping test and calculating statistics...");
+            log.info("\nShutdown signal received, stopping test and calculating statistics...");
             stopRequested = true;
 
             // Give threads a moment to finish current requests
@@ -540,7 +500,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
                 // Use System.out for thread completion to ensure visibility during shutdown
                 String completionMsg = "Thread " + threadId + " completed " + requestCount + " requests";
                 if (stopRequested) {
-                    System.out.println(completionMsg);
+                	log.info(completionMsg);
                 } else {
                     log.info(completionMsg);
                 }
@@ -643,7 +603,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
                     // Try pipe-delimited format first
                     if (line.contains("|")) {
                         String[] parts = line.split("\\|", 2);
-                        certs.add(new CertificateInfo(parts[0], parts[1]));
+                        certs.add(new CertificateInfo(parts[0]));
                     } else {
                         // Simple serial number format
                         BigInteger serialNumber;
@@ -657,7 +617,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
                                 serialNumber = new BigInteger(line);
                             }
                         }
-                        certs.add(new CertificateInfo(serialNumber.toString(16).toUpperCase(), null));
+                        certs.add(new CertificateInfo(serialNumber.toString(16).toUpperCase()));
                     }
                 } catch (NumberFormatException e) {
                     log.warn("Skipping invalid serial number at line " + lineNumber + ": " + line);
@@ -696,30 +656,30 @@ public class OcspStressTestCommand extends ErceCommandBase {
      * Returns array: [0] = PrivateKey, [1] = X509Certificate[]
      */
     private Object[] loadSigningCredentials(String keystorePath, String password) throws Exception {
-        java.io.FileInputStream fis = null;
+        FileInputStream fis = null;
         try {
-            fis = new java.io.FileInputStream(keystorePath);
+            fis = new FileInputStream(keystorePath);
 
             // Try PKCS12 first
-            java.security.KeyStore keystore = null;
+            KeyStore keystore = null;
             try {
-                keystore = java.security.KeyStore.getInstance("PKCS12");
+                keystore = KeyStore.getInstance("PKCS12");
                 keystore.load(fis, password.toCharArray());
             } catch (Exception e) {
                 // If PKCS12 fails, try JKS
                 fis.close();
-                fis = new java.io.FileInputStream(keystorePath);
-                keystore = java.security.KeyStore.getInstance("JKS");
+                fis = new FileInputStream(keystorePath);
+                keystore = KeyStore.getInstance("JKS");
                 keystore.load(fis, password.toCharArray());
             }
 
             // Find the first private key entry
-            java.util.Enumeration<String> aliases = keystore.aliases();
+            Enumeration<String> aliases = keystore.aliases();
             while (aliases.hasMoreElements()) {
                 String alias = aliases.nextElement();
                 if (keystore.isKeyEntry(alias)) {
-                    java.security.PrivateKey privateKey = (java.security.PrivateKey) keystore.getKey(alias, password.toCharArray());
-                    java.security.cert.Certificate[] certChain = keystore.getCertificateChain(alias);
+                    PrivateKey privateKey = (PrivateKey) keystore.getKey(alias, password.toCharArray());
+                    Certificate[] certChain = keystore.getCertificateChain(alias);
 
                     if (privateKey != null && certChain != null && certChain.length > 0) {
                         // Convert to X509Certificate array
@@ -749,7 +709,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
      * Optionally signs the request if signing credentials are provided
      */
     private OcspRequestWithNonce buildOcspRequest(BigInteger serialNumber, X509Certificate caCert, int nonceLength,
-            java.security.PrivateKey signingKey, X509Certificate[] signingCertChain)
+            PrivateKey signingKey, X509Certificate[] signingCertChain)
             throws Exception {
         // Create digest calculator
         DigestCalculatorProvider digCalcProv = new JcaDigestCalculatorProviderBuilder()
@@ -787,7 +747,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
             }
 
             // Create content signer
-            org.bouncycastle.operator.ContentSigner signer = new org.bouncycastle.operator.jcajce.JcaContentSignerBuilder("SHA256withRSA")
+            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                     .build(signingKey);
 
@@ -821,8 +781,8 @@ public class OcspStressTestCommand extends ErceCommandBase {
 
             case "GET":
                 // Encode OCSP request as Base64 per RFC 6960 Section A.1.1
-                byte[] base64Bytes = org.bouncycastle.util.encoders.Base64.encode(requestBytes);
-                String base64Req = new String(base64Bytes, java.nio.charset.StandardCharsets.US_ASCII);
+                byte[] base64Bytes = Base64.encode(requestBytes);
+                String base64Req = new String(base64Bytes, StandardCharsets.US_ASCII);
 
                 // EJBCA's OCSP servlet expects standard Base64 with URL encoding
                 // It uses URLDecoder.decode() then replaces spaces with '+' before Base64 decoding
@@ -909,16 +869,16 @@ public class OcspStressTestCommand extends ErceCommandBase {
     private boolean verifyOcspResponseSignature(BasicOCSPResp basicResp, X509Certificate caCert) {
         try {
             // Get certificates from OCSP response (OCSP responder certificate)
-            org.bouncycastle.cert.X509CertificateHolder[] certs = basicResp.getCerts();
+            X509CertificateHolder[] certs = basicResp.getCerts();
 
             if (certs != null && certs.length > 0) {
                 // OCSP response is signed by a delegated OCSP responder certificate
                 // Verify using the first certificate in the response (OCSP responder cert)
-                org.bouncycastle.cert.X509CertificateHolder responderCert = certs[0];
+                X509CertificateHolder responderCert = certs[0];
 
                 // Build content verifier using the OCSP responder's public key
-                org.bouncycastle.operator.ContentVerifierProvider verifierProvider =
-                    new org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder()
+                ContentVerifierProvider verifierProvider =
+                    new JcaContentVerifierProviderBuilder()
                         .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                         .build(responderCert);
 
@@ -936,8 +896,8 @@ public class OcspStressTestCommand extends ErceCommandBase {
                 return true;
             } else {
                 // OCSP response is signed directly by the CA certificate
-                org.bouncycastle.operator.ContentVerifierProvider verifierProvider =
-                    new org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder()
+                ContentVerifierProvider verifierProvider =
+                    new JcaContentVerifierProviderBuilder()
                         .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                         .build(caCert.getPublicKey());
 
@@ -1116,14 +1076,14 @@ public class OcspStressTestCommand extends ErceCommandBase {
         long successfulRequests = totalRequests - totalFailures;
         double executionTime = duration / 1000.0;
 
-        System.out.println();
-        System.out.println("===== OCSP Stress Test Results =====");
-        System.out.println("Total execution time: " + String.format("%.2f", executionTime) + " seconds");
-        System.out.println("Total requests: " + totalRequests);
-        System.out.println("Successful requests: " + successfulRequests);
-        System.out.println("Failed requests: " + totalFailures);
+        log.info("\n");
+        log.info("===== OCSP Stress Test Results =====\n");
+        log.info("Total execution time: " + String.format("%.2f", executionTime) + " seconds");
+        log.info("Total requests: " + totalRequests);
+        log.info("Successful requests: " + successfulRequests);
+        log.info("Failed requests: " + totalFailures + "\n");
         if (executionTime > 0) {
-            System.out.println("Throughput: " + String.format("%.2f", totalRequests / executionTime) + " requests/second");
+        	log.info("Throughput: " + String.format("%.2f", totalRequests / executionTime) + " requests/second");
         }
 
         // Response time statistics
@@ -1136,25 +1096,25 @@ public class OcspStressTestCommand extends ErceCommandBase {
             long p95Time = allResponseTimes.get((int) (allResponseTimes.size() * 0.95));
             long p99Time = allResponseTimes.get((int) (allResponseTimes.size() * 0.99));
 
-            System.out.println();
-            System.out.println("Response Times (ms):");
-            System.out.println("  Min: " + minTime);
-            System.out.println("  Max: " + maxTime);
-            System.out.println("  Avg: " + avgTime);
-            System.out.println("  P50: " + p50Time);
-            System.out.println("  P95: " + p95Time);
-            System.out.println("  P99: " + p99Time);
+            log.info("\n");
+            log.info("Response Times (ms):"+ "\n");
+            log.info("  Min: " + minTime + "\n");
+            log.info("  Max: " + maxTime + "\n");
+            log.info("  Avg: " + avgTime + "\n");
+            log.info("  P50: " + p50Time + "\n");
+            log.info("  P95: " + p95Time + "\n");
+            log.info("  P99: " + p99Time + "\n");
         }
 
         // Certificate status breakdown
         if (!totalStatusCounts.isEmpty()) {
-            System.out.println();
-            System.out.println("Certificate Status Distribution:");
+            log.info("\n");
+            log.info("Certificate Status Distribution:" + "\n");
             for (Map.Entry<String, Integer> entry : totalStatusCounts.entrySet()) {
-                System.out.println("  " + entry.getKey() + ": " + entry.getValue());
+                log.info("  " + entry.getKey() + ": " + entry.getValue() + "\n");
             }
         }
-        System.out.println();
+        log.info("\n");
     }
 
     /**
@@ -1204,7 +1164,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
             writer.println("Test Duration (s),Total Requests,Successful,Failed,Throughput (req/s),Min Response (ms),Max Response (ms),Avg Response (ms),P50 (ms),P95 (ms),P99 (ms),GOOD,REVOKED,UNKNOWN,Timestamp");
 
             // Write data row
-            String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+            String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
             writer.println(String.format("%.2f,%d,%d,%d,%.2f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s",
                     executionTime, totalRequests, successfulRequests, totalFailures, throughput,
                     minTime, maxTime, avgTime, p50Time, p95Time, p99Time,
@@ -1254,7 +1214,7 @@ public class OcspStressTestCommand extends ErceCommandBase {
         int revokedCount = totalStatusCounts.getOrDefault("REVOKED", 0);
         int unknownCount = totalStatusCounts.getOrDefault("UNKNOWN", 0);
 
-        String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 
         try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(filename)))) {
             writer.println("# OCSP Stress Test Results");
