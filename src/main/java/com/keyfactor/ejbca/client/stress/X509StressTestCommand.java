@@ -234,9 +234,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 		registerParameter(new Parameter(PROGRESS_INTERVAL_ARG, "Progress interval (seconds)", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Interval in seconds for displaying real-time progress updates. Default: 5 seconds. Set to 0 to disable progress updates."));
 		registerParameter(new Parameter(SAVEKEYS_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Save all generated private keys to the specified directory as PEM files. Keys are named key_<threadId>_<certId>.pem. Useful for reusing keys in subsequent stress tests."));
+				ParameterMode.ARGUMENT, "Save all generated private keys to the specified directory as PEM files. Keys are named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem (e.g., key_ecdsa_secp256r1_0_0.pem). Useful for reusing keys in subsequent stress tests."));
 		registerParameter(new Parameter(LOADKEYS_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
-				ParameterMode.ARGUMENT, "Load pre-generated private keys from the specified directory instead of generating new ones. Significantly speeds up stress tests when testing large volumes (e.g., 10 million issuances). Keys should be named key_<threadId>_<certId>.pem."));
+				ParameterMode.ARGUMENT, "Load pre-generated private keys from the specified directory instead of generating new ones. Significantly speeds up stress tests when testing large volumes (e.g., 10 million issuances). Keys should be named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem."));
 
 	}
 
@@ -739,7 +739,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 		sb.append("For large-scale stress tests (e.g., 10 million issuances), key generation can be a bottleneck.\n");
 		sb.append("Use " + SAVEKEYS_ARG + " <directory> to save generated private keys to PEM files during the first run.\n");
 		sb.append("Use " + LOADKEYS_ARG + " <directory> to load pre-generated keys in subsequent runs, significantly reducing preparation time.\n");
-		sb.append("Keys are named key_<threadId>_<keyIndex>.pem in the specified directory.\n\n");
+		sb.append("Keys are named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem (e.g., key_ecdsa_secp256r1_0_0.pem, key_rsa_2048_0_0.pem, key_ml-dsa-44_0_0.pem).\n\n");
 		sb.append(
 				"To allow for easy cleaning of the database afterwards, all end entities will have their usernames prefixed with "
 						+ STRESS_TEST_PREFIX_DEFAULT + " by default.\n");
@@ -834,7 +834,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 						if (keyPair == null || !singleKey) {
 							// Try to load key from directory if loadKeysDir is specified
 							if (!StringUtils.isBlank(loadKeysDir)) {
-								keyPair = loadKeyPair(loadKeysDir, i, keyIndex);
+								keyPair = loadKeyPair(loadKeysDir, keyAlg, keySpec, i, keyIndex);
 								if (keyPair == null) {
 									throw new IllegalStateException("Could not load key pair from " + loadKeysDir + " for thread " + i + ", index " + keyIndex);
 								}
@@ -848,7 +848,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 								// Save key if saveKeysDir is specified
 								if (!StringUtils.isBlank(saveKeysDir)) {
-									saveKeyPair(keyPair, saveKeysDir, i, keyIndex);
+									saveKeyPair(keyPair, saveKeysDir, keyAlg, keySpec, i, keyIndex);
 								}
 							}
 						}
@@ -889,10 +889,21 @@ public class X509StressTestCommand extends ErceCommandBase {
 	}
 
 	/**
+	 * Build the key filename with algorithm and keyspec information.
+	 */
+	private String buildKeyFilename(String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		// Normalize the algorithm name for the filename
+		String algName = keyAlg.toLowerCase().replace("_", "-");
+		// For ML-DSA variants, keySpec is null, so we just use the algorithm name
+		String specPart = (keySpec != null) ? "_" + keySpec.toLowerCase() : "";
+		return directory + File.separator + "key_" + algName + specPart + "_" + threadId + "_" + keyIndex + ".pem";
+	}
+
+	/**
 	 * Save a key pair to a PEM file in the specified directory.
 	 */
-	private void saveKeyPair(KeyPair keyPair, String directory, int threadId, int keyIndex) {
-		String filename = directory + File.separator + "key_" + threadId + "_" + keyIndex + ".pem";
+	private void saveKeyPair(KeyPair keyPair, String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		String filename = buildKeyFilename(directory, keyAlg, keySpec, threadId, keyIndex);
 		try (JcaPEMWriter pemWriter = new JcaPEMWriter(new FileWriter(filename))) {
 			pemWriter.writeObject(keyPair.getPrivate());
 			pemWriter.writeObject(keyPair.getPublic());
@@ -904,8 +915,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 	/**
 	 * Load a key pair from a PEM file in the specified directory.
 	 */
-	private KeyPair loadKeyPair(String directory, int threadId, int keyIndex) {
-		String filename = directory + File.separator + "key_" + threadId + "_" + keyIndex + ".pem";
+	private KeyPair loadKeyPair(String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		String filename = buildKeyFilename(directory, keyAlg, keySpec, threadId, keyIndex);
 		File keyFile = new File(filename);
 		if (!keyFile.exists()) {
 			log.error("Key file not found: " + filename);
