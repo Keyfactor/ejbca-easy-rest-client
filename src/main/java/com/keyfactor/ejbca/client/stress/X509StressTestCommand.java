@@ -471,7 +471,12 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
 
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName, historyCount, saveKeysDir, loadKeysDir);
+		try {
+			generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName, historyCount, saveKeysDir, loadKeysDir);
+		} catch (IllegalStateException e) {
+			getLogger().error("Failed to generate payloads: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
+		}
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -479,7 +484,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 				Thread.sleep(500);
 			}
 		} catch (InterruptedException e) {
-			throw new IllegalStateException(e);
+			Thread.currentThread().interrupt();
+			getLogger().error("Stress test interrupted: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
 		}
 		
 		log.info("\nWeapons free. Fire for effect.");
