@@ -14,6 +14,7 @@ package com.keyfactor.ejbca.client.stress;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -59,6 +60,9 @@ import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.openssl.PEMKeyPair;
+import org.bouncycastle.openssl.PEMParser;
+import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -116,6 +120,8 @@ public class X509StressTestCommand extends ErceCommandBase {
 	private static final String OUTPUT_FORMAT_ARG = "--outputformat";
 	private static final String OUTPUT_FILE_ARG = "--outputfile";
 	private static final String PROGRESS_INTERVAL_ARG = "--progressinterval";
+	private static final String SAVEKEYS_ARG = "--savekeys";
+	private static final String LOADKEYS_ARG = "--loadkeys";
 
 	private static final Set<String> RSA_KEY_SIZES = new LinkedHashSet<>(
 			Arrays.asList("1024", "1536", "2048", "3072", "4096", "6144", "8192"));
@@ -227,6 +233,10 @@ public class X509StressTestCommand extends ErceCommandBase {
 				ParameterMode.ARGUMENT, "File path to save test results in CSV or Markdown format. Required when --outputformat is csv or markdown."));
 		registerParameter(new Parameter(PROGRESS_INTERVAL_ARG, "Progress interval (seconds)", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
 				ParameterMode.ARGUMENT, "Interval in seconds for displaying real-time progress updates. Default: 5 seconds. Set to 0 to disable progress updates."));
+		registerParameter(new Parameter(SAVEKEYS_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Save all generated private keys to the specified directory as PEM files. Keys are named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem (e.g., key_ecdsa_secp256r1_0_0.pem). Useful for reusing keys in subsequent stress tests."));
+		registerParameter(new Parameter(LOADKEYS_ARG, "directory", MandatoryMode.OPTIONAL, StandaloneMode.FORBID,
+				ParameterMode.ARGUMENT, "Load pre-generated private keys from the specified directory instead of generating new ones. Significantly speeds up stress tests when testing large volumes (e.g., 10 million issuances). Keys should be named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem."));
 
 	}
 
@@ -360,6 +370,36 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		final boolean revokeAfterIssuance = parameters.containsKey(REVOKE_ARG);
 		final String saveCertsFile = parameters.get(SAVECERTS_ARG);
+		final String saveKeysDir = parameters.get(SAVEKEYS_ARG);
+		final String loadKeysDir = parameters.get(LOADKEYS_ARG);
+
+		// Validate key directory parameters
+		if (!StringUtils.isBlank(saveKeysDir) && !StringUtils.isBlank(loadKeysDir)) {
+			log.error("Cannot use both " + SAVEKEYS_ARG + " and " + LOADKEYS_ARG + " at the same time.");
+			return CommandResult.CLI_FAILURE;
+		}
+
+		if (!StringUtils.isBlank(saveKeysDir)) {
+			File keysDir = new File(saveKeysDir);
+			if (!keysDir.exists()) {
+				if (!keysDir.mkdirs()) {
+					log.error("Failed to create keys directory: " + saveKeysDir);
+					return CommandResult.CLI_FAILURE;
+				}
+				log.info("Created keys directory: " + saveKeysDir);
+			} else if (!keysDir.isDirectory()) {
+				log.error(SAVEKEYS_ARG + " must be a directory: " + saveKeysDir);
+				return CommandResult.CLI_FAILURE;
+			}
+		}
+
+		if (!StringUtils.isBlank(loadKeysDir)) {
+			File keysDir = new File(loadKeysDir);
+			if (!keysDir.exists() || !keysDir.isDirectory()) {
+				log.error(LOADKEYS_ARG + " directory does not exist: " + loadKeysDir);
+				return CommandResult.CLI_FAILURE;
+			}
+		}
 
 		// Parse and validate key algorithm
 		String keyAlg = parameters.get(KEYALG_ARG);
@@ -431,7 +471,12 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 		final boolean singleKey = parameters.containsKey(REUSE_KEY_ARG);
 
-		generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName, historyCount);
+		try {
+			generatePayloads(numberOfThreads, requestPerThread, caName, certificateProfileName, endEntityProfileName, singleKey, prefix, postfix, keyAlg, keySpec, subjectDn, subjectAltName, historyCount, saveKeysDir, loadKeysDir);
+		} catch (IllegalStateException e) {
+			getLogger().error("Failed to generate payloads: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
+		}
 		log.info("All CSR payloads transferred to caches..\n\nPreparing orbital bombardment in....");
 		try {
 			for (int i = 3; i > 0; --i) {
@@ -439,7 +484,9 @@ public class X509StressTestCommand extends ErceCommandBase {
 				Thread.sleep(500);
 			}
 		} catch (InterruptedException e) {
-			throw new IllegalStateException(e);
+			Thread.currentThread().interrupt();
+			getLogger().error("Stress test interrupted: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
 		}
 		
 		log.info("\nWeapons free. Fire for effect.");
@@ -695,6 +742,11 @@ public class X509StressTestCommand extends ErceCommandBase {
 		sb.append("By default, keys generated for each CSR will use ECDSA with the secp256r1 curve.\n");
 		sb.append("You can configure the key algorithm using " + KEYALG_ARG + " (RSA, ECDSA, ML-DSA-44, ML-DSA-65, ML-DSA-87) ");
 		sb.append("and key specification using " + KEYSPEC_ARG + " (RSA key size or EC curve name).\n\n");
+		sb.append("KEY REUSE FOR LARGE-SCALE TESTING:\n");
+		sb.append("For large-scale stress tests (e.g., 10 million issuances), key generation can be a bottleneck.\n");
+		sb.append("Use " + SAVEKEYS_ARG + " <directory> to save generated private keys to PEM files during the first run.\n");
+		sb.append("Use " + LOADKEYS_ARG + " <directory> to load pre-generated keys in subsequent runs, significantly reducing preparation time.\n");
+		sb.append("Keys are named key_<algorithm>_<keyspec>_<threadId>_<keyIndex>.pem (e.g., key_ecdsa_secp256r1_0_0.pem, key_rsa_2048_0_0.pem, key_ml-dsa-44_0_0.pem).\n\n");
 		sb.append(
 				"To allow for easy cleaning of the database afterwards, all end entities will have their usernames prefixed with "
 						+ STRESS_TEST_PREFIX_DEFAULT + " by default.\n");
@@ -723,7 +775,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 	@SuppressWarnings("unchecked")
 	private void generatePayloads(final int numberOfThreads, final int requestPerThread, final String caName,
-			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec, final String customSubjectDn, final String customSubjectAltName, final int historyCount) {
+			final String certificateProfileName, final String endEntityProfileName, final boolean singleKey, final String prefix, final String postfix, final String keyAlg, final String keySpec, final String customSubjectDn, final String customSubjectAltName, final int historyCount, final String saveKeysDir, final String loadKeysDir) {
 		// Calculate total certificates: base certificates + additional history certificates
 		final int certsPerEntity = 1 + historyCount;
 		final int totalCertsPerThread = requestPerThread * certsPerEntity;
@@ -733,13 +785,21 @@ public class X509StressTestCommand extends ErceCommandBase {
 		if (historyCount > 0) {
 			log.info("Certificate history testing enabled: " + certsPerEntity + " certificate(s) per end entity (" + historyCount + " additional).");
 		}
+
+		// Log key loading/saving mode
+		if (!StringUtils.isBlank(loadKeysDir)) {
+			log.info("Loading pre-generated keys from: " + loadKeysDir);
+		} else if (!StringUtils.isBlank(saveKeysDir)) {
+			log.info("Will save generated keys to: " + saveKeysDir);
+		}
+
 		log.info("Pre generating CSR payloads...");
 		final String password = "foo123";
 		this.payloads = new String[numberOfThreads][totalCertsPerThread];
 		this.subjectDns = new String[numberOfThreads][totalCertsPerThread];
 		final int increment = numberOfThreads / 10;
 		int counter = 0;
-		KeyPair keyPair = null;	
+		KeyPair keyPair = null;
 		try {
 			int payloadIndex = 0;
 			for (int i = 0; i < numberOfThreads; ++i) {
@@ -775,11 +835,28 @@ public class X509StressTestCommand extends ErceCommandBase {
 
 					// Generate certificates for this end entity (1 base + historyCount additional)
 					for (int h = 0; h < certsPerEntity; ++h) {
+						// Determine the key index for this certificate
+						final int keyIndex = payloadIndex;
+
 						if (keyPair == null || !singleKey) {
-							try {
-								keyPair = KeyTools.genKeys(keySpec, keyAlg);
-							} catch (InvalidAlgorithmParameterException e) {
-								throw new IllegalStateException("Could not generate key pairs.", e);
+							// Try to load key from directory if loadKeysDir is specified
+							if (!StringUtils.isBlank(loadKeysDir)) {
+								keyPair = loadKeyPair(loadKeysDir, keyAlg, keySpec, i, keyIndex);
+								if (keyPair == null) {
+									throw new IllegalStateException("Could not load key pair from " + loadKeysDir + " for thread " + i + ", index " + keyIndex);
+								}
+							} else {
+								// Generate new key
+								try {
+									keyPair = KeyTools.genKeys(keySpec, keyAlg);
+								} catch (InvalidAlgorithmParameterException e) {
+									throw new IllegalStateException("Could not generate key pairs.", e);
+								}
+
+								// Save key if saveKeysDir is specified
+								if (!StringUtils.isBlank(saveKeysDir)) {
+									saveKeyPair(keyPair, saveKeysDir, keyAlg, keySpec, i, keyIndex);
+								}
 							}
 						}
 						// Handle empty subject DN when only SAN is provided
@@ -816,6 +893,65 @@ public class X509StressTestCommand extends ErceCommandBase {
 			throw new IllegalStateException("Could not generate CSR bucket.", e);
 		}
 
+	}
+
+	/**
+	 * Build the key filename with algorithm and keyspec information.
+	 */
+	private String buildKeyFilename(String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		// Normalize the algorithm name for the filename
+		String algName = keyAlg.toLowerCase().replace("_", "-");
+		// For ML-DSA variants, keySpec is null, so we just use the algorithm name
+		String specPart = (keySpec != null) ? "_" + keySpec.toLowerCase() : "";
+		return directory + File.separator + "key_" + algName + specPart + "_" + threadId + "_" + keyIndex + ".pem";
+	}
+
+	/**
+	 * Save a key pair to a PEM file in the specified directory.
+	 */
+	private void saveKeyPair(KeyPair keyPair, String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		String filename = buildKeyFilename(directory, keyAlg, keySpec, threadId, keyIndex);
+		try (JcaPEMWriter pemWriter = new JcaPEMWriter(new FileWriter(filename))) {
+			pemWriter.writeObject(keyPair.getPrivate());
+			pemWriter.writeObject(keyPair.getPublic());
+		} catch (IOException e) {
+			throw new IllegalStateException("Failed to save key pair to " + filename, e);
+		}
+	}
+
+	/**
+	 * Load a key pair from a PEM file in the specified directory.
+	 */
+	private KeyPair loadKeyPair(String directory, String keyAlg, String keySpec, int threadId, int keyIndex) {
+		String filename = buildKeyFilename(directory, keyAlg, keySpec, threadId, keyIndex);
+		File keyFile = new File(filename);
+		if (!keyFile.exists()) {
+			log.error("Key file not found: " + filename);
+			return null;
+		}
+
+		try (PEMParser pemParser = new PEMParser(new FileReader(filename))) {
+			JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME);
+			Object object = pemParser.readObject();
+
+			if (object instanceof PEMKeyPair) {
+				return converter.getKeyPair((PEMKeyPair) object);
+			} else if (object instanceof org.bouncycastle.asn1.pkcs.PrivateKeyInfo) {
+				// Handle private key info - need to also read public key
+				java.security.PrivateKey privateKey = converter.getPrivateKey((org.bouncycastle.asn1.pkcs.PrivateKeyInfo) object);
+				Object publicKeyObj = pemParser.readObject();
+				if (publicKeyObj instanceof org.bouncycastle.asn1.x509.SubjectPublicKeyInfo) {
+					java.security.PublicKey publicKey = converter.getPublicKey((org.bouncycastle.asn1.x509.SubjectPublicKeyInfo) publicKeyObj);
+					return new KeyPair(publicKey, privateKey);
+				}
+			}
+
+			log.error("Unexpected key format in file: " + filename);
+			return null;
+		} catch (IOException e) {
+			log.error("Failed to load key pair from " + filename + ": " + e.getMessage());
+			return null;
+		}
 	}
 
 	private static PKCS10CertificationRequest generateCertificateRequest(final X500Name userDN, final KeyPair keyPair, final String keyAlg, final String subjectAltName) throws IOException {
