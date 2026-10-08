@@ -43,6 +43,16 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+import javax.net.ssl.SSLContext;
+
+import com.keyfactor.ejbca.client.ErceCommandBase;
+import com.keyfactor.util.Base64;
+import com.keyfactor.util.CertTools;
+import com.keyfactor.util.certificate.DnComponents;
+import com.keyfactor.util.crypto.algorithm.AlgorithmConstants;
+import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
+import com.keyfactor.util.keys.KeyTools;
+
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -73,15 +83,6 @@ import org.ejbca.ui.cli.infrastructure.parameter.enums.MandatoryMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.ParameterMode;
 import org.ejbca.ui.cli.infrastructure.parameter.enums.StandaloneMode;
 import org.json.simple.JSONObject;
-
-import com.keyfactor.ejbca.client.ErceCommandBase;
-import com.keyfactor.util.Base64;
-import com.keyfactor.util.CertTools;
-import com.keyfactor.util.certificate.DnComponents;
-import com.keyfactor.util.crypto.algorithm.AlgorithmConstants;
-import com.keyfactor.util.crypto.algorithm.AlgorithmTools;
-import com.keyfactor.util.keys.KeyTools;
-
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
@@ -547,6 +548,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 			progressThread.start();
 		}
 
+		SSLContext sslContext;
+		try {
+			sslContext = getSslContext();
+		} catch (KeyStoreException | KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException e) {
+			getLogger().error("Failed to set up TLS context: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
+		}
 		long startTime = System.currentTimeMillis();
 		List<CompletableFuture<StressTestResult>> futures = new ArrayList<>();
 		for (int threadNumber = 0; threadNumber < numberOfThreads; ++threadNumber) {
@@ -570,7 +578,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 					try {
 						request.setEntity(new StringEntity(payload));
 						// connect to EJBCA and send the CSR and get an issued certificate back
-						try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+						try (CloseableHttpResponse response = performRESTAPIRequest(sslContext, request)) {
 							final InputStream entityContent = response.getEntity().getContent();
 							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 							switch (response.getStatusLine().getStatusCode()) {
@@ -1429,6 +1437,13 @@ public class X509StressTestCommand extends ErceCommandBase {
 		log.info("\nWeapons free. Fire for effect (revocation only).");
 		long startTime = System.currentTimeMillis();
 
+		SSLContext sslContext;
+		try {
+			sslContext = getSslContext();
+		} catch (KeyStoreException | KeyManagementException | UnrecoverableKeyException | NoSuchAlgorithmException e) {
+			getLogger().error("Failed to set up TLS context: " + e.getMessage());
+			return CommandResult.CLI_FAILURE;
+		}
 		List<CompletableFuture<List<String>>> futures = new ArrayList<>();
 		for (int threadNumber = 0; threadNumber < numberOfThreads; threadNumber++) {
 			final int startIdx = threadNumber * certsPerThread;
@@ -1476,7 +1491,7 @@ public class X509StressTestCommand extends ErceCommandBase {
 						final HttpPut request = new HttpPut(restUrl);
 						request.setEntity(new StringEntity(payload));
 
-						try (CloseableHttpResponse response = performRESTAPIRequest(getSslContext(), request)) {
+						try (CloseableHttpResponse response = performRESTAPIRequest(sslContext, request)) {
 							final InputStream entityContent = response.getEntity().getContent();
 							String responseString = IOUtils.toString(entityContent, StandardCharsets.UTF_8);
 
